@@ -1,0 +1,14 @@
+
+
+
+
+## Creating MZ and DZ data sets ##
+twinA <- twins[twins$TWIN=="1",]
+twinB <- twins[twins$TWIN=="2",]
+
+newtwins <- merge(twinA, twinB, by=c("CASE","ZYG2019"),all.x=TRUE, all.y=TRUE,suffixes=c("_T1","_T2"))
+names(newtwins)
+
+
+options(digits = 2, scipen = 999)
+mxOption(NULL, "Default optimizer", "SLSQP")
