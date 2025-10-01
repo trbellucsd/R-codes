@@ -1,0 +1,11 @@
+
+VETSA_long <- VETSA %>%
+  pivot_longer(
+    cols = c(AGE_V2:CRPSQRT_V4),   # all repeated measures
+    names_to = c(".value", "Wave"), # .value keeps AGE, CESDSQRT, CRPSQRT separate
+    names_pattern = "(.*)_(V[234])" # captures variable name + wave
+  ) %>%
+  # optional: convert Wave to numeric (2,3,4)
+  mutate(Wave = as.numeric(gsub("V", "", Wave))) %>%
+  arrange(VETSAID, Wave)
+twins<-VETSA
