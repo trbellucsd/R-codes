@@ -1,0 +1,5 @@
+
+boot_results <- mxBootstrap(fit_both_0, replications=1000) 
+boot_summary <- summary(boot_results, boot.quantile=c(0.025,0.975))
+boot_summary
+
