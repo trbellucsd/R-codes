@@ -1,0 +1,108 @@
+
+
+twins<-VETSA
+
+
+## Creating MZ and DZ data sets ##
+twinA <- twins[twins$TWIN=="1",]
+twinB <- twins[twins$TWIN=="2",]
+
+newtwins <- merge(twinA, twinB, by=c("CASE","ZYG2019"),all.x=TRUE, all.y=TRUE,suffixes=c("_T1","_T2"))
+names(newtwins)
+
+# Correlated factors
+
+df2 <- newtwins
+
+selVars <- c(
+  "i_cesd_Scores_T1","s_cesd_Scores_T1","i_crp_Scores_T1","s_crp_Scores_T1",
+  "i_cesd_Scores_T2","s_cesd_Scores_T2","i_crp_Scores_T2","s_crp_Scores_T2"
+)
+
+nv        	= 4                   		
+ntv       	= nv*2
+mzdata		= subset(df2, ZYG2019==1,selVars) 
+dzdata		= subset(df2, ZYG2019==2,selVars) 
+
+psych::describe(mzdata)
+psych::describe(dzdata)
+
+nv     	= length(selVars)/2     
+ntv    	= nv*2    
+thVals 	= 0.5
+aLabs  	= paste("a",rev(nv+1-sequence(1:nv)),rep(1:nv,nv:1),sep="")
+cLabs  	= paste("c",rev(nv+1-sequence(1:nv)),rep(1:nv,nv:1),sep="")
+eLabs  	= paste("e",rev(nv+1-sequence(1:nv)),rep(1:nv,nv:1),sep="") 
+
+
+multi_ace = mxModel("Correlated factors",
+                    mxModel("top",
+                            mxMatrix( name="Means", 		type="Full", nrow=1, ncol=nv, free=c(T,T,T,T), labels=c("m1","m2", "m3","m4")), 
+                            mxAlgebra(name="expMean", 		cbind(Means,Means)), # Mean matrices for twin 1 and twin 2
+                            mxMatrix( name="inc",    		type="Lower", nrow=1,  ncol=1,  free=F, values=1),
+                            mxMatrix( name="A",			type="Symm",  nrow=nv, ncol=nv, free=T, values=0, 	labels=aLabs, lbound= -20, ubound= 20),
+                            mxMatrix( name="C",			type="Symm",  nrow=nv, ncol=nv, free=T, values = 0, labels=cLabs, lbound= -25, ubound=20),
+                            mxMatrix( name="E",			type="Symm",  nrow=nv, ncol=nv, free=T, 			labels=eLabs, lbound= -20, ubound=20),
+                            mxAlgebra(name="expCovMZ",		expression= rbind( cbind(A+C+E, A+C  ), cbind(  A+C, A+C+E))),
+                            mxAlgebra(name="expCovDZ",		expression= rbind( cbind(A+C+E, 0.5%x%A+C), cbind( 0.5%x%A+C, A+C+E) )),
+                            mxAlgebra(name="corrP",		expression=cov2cor(A+C+E)),
+                            mxAlgebra(name="corrA",		expression=cov2cor(A)),
+                            mxAlgebra(name="corrE",		expression=cov2cor(E)),
+                            mxCI(c("VC[1,13]","VC[2,14]","VC[3,15]","VC[3,16]",
+                                   "VC[1,17]","VC[2,18]","VC[3,19]","VC[3,20]",
+                                   "VC[1,21]","VC[2,22]","VC[3,23]","VC[3,24]")),
+                            mxAlgebra(name="VC", expression=cbind(A,C,E,A/(A+C+E),C/(A+C+E),E/(A+C+E)), dimnames=list(rep('VC',nv),rep(c('A','C','E','SA','SC','SE'),each=nv)) )),
+                    mxModel("MZ", mxData(mzdata, type ="raw"), mxExpectationNormal("top.expCovMZ", means="top.expMean", dimnames=selVars), mxFitFunctionML() ),
+                    mxModel("DZ", mxData(dzdata, type ="raw"), mxExpectationNormal("top.expCovDZ", means="top.expMean", dimnames=selVars), mxFitFunctionML() ),
+                    mxFitFunctionMultigroup(c("MZ","DZ")))
+omxGetParameters(multi_ace)
+#mxCheckIdentification(multi_ace)
+
+# Run ULS for better start values
+uls 				<- mxAutoStart( multi_ace )
+uls_fit			<- mxTryHard( mxAutoStart(uls), extraTries = 50 )
+summary( uls_fit )
+
+# uls_fit$top$algebras$expCovDZ
+# uls_fit$top$algebras$expCovMZ
+round(multi_ace_fit$top$algebras$VC$result,2)
+
+# ACE 
+multi_ace_fit 				<- mxTryHard(uls_fit)
+summary(omxRunCI(multi_ace_fit, optimizer = "SLSQP"),verbose=F) 
+summary( multi_ace_fit ) 
+print(summary( multi_ace_fit )$CI)
+
+# AE model
+multi_ae 					<- mxModel( multi_ace_fit,name="AE")
+multi_ae 					<- omxSetParameters( multi_ae, label=cLabs,free=F,values= 0)
+multi_ae_fit				<- mxTryHard( multi_ae )
+summary( multi_ae_fit ) 
+round(multi_ae_fit$top$algebras$VC$result,2)
+
+
+
+
+boot_results <- mxBootstrap(multi_ae_fit, replications=100) 
+boot_summary <- summary(boot_results, boot.quantile=c(0.025,0.975))
+boot_summary
+
+
+# CE model
+multi_ce 					<- mxModel( multi_ace_fit,name="CE")
+multi_ce 					<- omxSetParameters( multi_ce, label=aLabs,free=F,values= 0)
+multi_ce_fit				<- mxTryHard( multi_ce )
+summary( multi_ce_fit ) 
+
+# E model
+multi_e 	 				<- mxModel( multi_ace_fit,name="E")
+multi_e 	 				<- omxSetParameters( multi_e, label=aLabs,free=F,values= 0)
+multi_e 					<- omxSetParameters( multi_e, label=cLabs,free=F,values= 0)
+multi_e_fit				<- mxTryHard( multi_e )
+summary( multi_e_fit ) 
+
+# Compare models
+mxCompare(multi_ace_fit,c(multi_ae_fit, multi_ce_fit, multi_e_fit)) 
+
+
+
