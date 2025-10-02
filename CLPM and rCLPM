@@ -1,3 +1,80 @@
+library(lavaan)
+
+clpm_age_tvc <- '
+  #############################
+  # Baseline covariance
+  #############################
+  CESDSQRT_V2 ~~ CRPSQRT_V2
+  # (optional) let baseline ages covary with baseline outcomes
+  CESDSQRT_V2 ~~ AGE_V2
+  CRPSQRT_V2  ~~ AGE_V2
+
+  #############################
+  # Autoregressive (stability)
+  #############################
+  CESDSQRT_V3 ~ a1*CESDSQRT_V2
+  CESDSQRT_V4 ~ a2*CESDSQRT_V3
+  CRPSQRT_V3  ~ b1*CRPSQRT_V2
+  CRPSQRT_V4  ~ b2*CRPSQRT_V3
+
+  # (optional) constrain stability equal across lags
+  a1 == a2
+  b1 == b2
+
+  #############################
+  # Cross-lagged effects
+  #############################
+  CESDSQRT_V3 ~ c1*CRPSQRT_V2
+  CESDSQRT_V4 ~ c2*CRPSQRT_V3
+  CRPSQRT_V3  ~ d1*CESDSQRT_V2
+  CRPSQRT_V4  ~ d2*CESDSQRT_V3
+
+  # (optional) constrain cross-lags equal across lags
+  c1 == c2
+  d1 == d2
+
+  #############################
+  # Time-varying age covariates
+  #############################
+  CESDSQRT_V2 ~ AGE_V2
+  CESDSQRT_V3 ~ AGE_V3
+  CESDSQRT_V4 ~ AGE_V4
+
+  CRPSQRT_V2  ~ AGE_V2
+  CRPSQRT_V3  ~ AGE_V3
+  CRPSQRT_V4  ~ AGE_V4
+
+  # (optional) let same-occasion age correlate with residuals of other process
+  # to soak up shared age-related variance at that wave
+  CESDSQRT_V3 ~~ CRPSQRT_V3 + AGE_V3
+  CESDSQRT_V4 ~~ CRPSQRT_V4 + AGE_V4
+  # baseline
+  CESDSQRT_V2 ~~ CRPSQRT_V2 + AGE_V2
+  CRPSQRT_V2  ~~ AGE_V2
+
+  #############################
+  # Means
+  #############################
+  CESDSQRT_V2 ~ 1
+  CESDSQRT_V3 ~ 1
+  CESDSQRT_V4 ~ 1
+  CRPSQRT_V2  ~ 1
+  CRPSQRT_V3  ~ 1
+  CRPSQRT_V4  ~ 1
+  AGE_V2 ~ 1
+  AGE_V3 ~ 1
+  AGE_V4 ~ 1
+'
+
+fit_tvc <- sem(clpm_age_tvc, data = VETSA, missing = "ML", estimator = "MLR")
+summary(fit_tvc, fit.measures = TRUE, standardized = TRUE, rsquare = TRUE)
+fitMeasures(fit_tvc, c("cfi","tli","rmsea","srmr"))
+
+
+mod_indices <- modificationIndices(fit_tvc, sort. = TRUE, maximum.number = 10)
+print(mod_indices)
+
+
 
 library(lavaan)
 
