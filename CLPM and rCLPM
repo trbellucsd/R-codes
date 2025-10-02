@@ -1,0 +1,296 @@
+
+library(lavaan)
+
+clpm_age_tvc_mod <- '
+  #############################
+  # Baseline covariance
+  #############################
+  CESDSQRT_V2 ~~ CRPSQRT_V2
+
+  #############################
+  # Allow AGE variables to covary across waves
+  # (addresses huge MIs for AGE_V2/3/4 relations)
+  #############################
+  AGE_V2 ~~ AGE_V3 + AGE_V4
+  AGE_V3 ~~ AGE_V4
+
+  #############################
+  # Autoregressive (stability)
+  #############################
+  CESDSQRT_V3 ~ a1*CESDSQRT_V2
+  CESDSQRT_V4 ~ a2*CESDSQRT_V3
+  CRPSQRT_V3  ~ b1*CRPSQRT_V2
+  CRPSQRT_V4  ~ b2*CRPSQRT_V3
+
+  # (optional) equality constraints
+  a1 == a2
+  b1 == b2
+
+  #############################
+  # Cross-lagged effects
+  #############################
+  CESDSQRT_V3 ~ c1*CRPSQRT_V2
+  CESDSQRT_V4 ~ c2*CRPSQRT_V3
+  CRPSQRT_V3  ~ d1*CESDSQRT_V2
+  CRPSQRT_V4  ~ d2*CESDSQRT_V3
+
+  # (optional) equality constraints
+  c1 == c2
+  d1 == d2
+
+  #############################
+  # Add lag-2 (carryover) for CESD (per MI: CESDSQRT_V2 -> CESDSQRT_V4)
+  #############################
+  CESDSQRT_V4 ~ l2*CESDSQRT_V2
+
+  #############################
+  # Time-varying AGE covariates
+  #############################
+  CESDSQRT_V2 ~ AGE_V2
+  CESDSQRT_V3 ~ AGE_V3
+  CESDSQRT_V4 ~ AGE_V4
+
+  CRPSQRT_V2  ~ AGE_V2
+  CRPSQRT_V3  ~ AGE_V3
+  CRPSQRT_V4  ~ AGE_V4
+
+  #############################
+  # Within-time residual correlations
+  #############################
+  CESDSQRT_V3 ~~ CRPSQRT_V3
+  CESDSQRT_V4 ~~ CRPSQRT_V4
+
+  #############################
+  # Means
+  #############################
+  CESDSQRT_V2 ~ 1
+  CESDSQRT_V3 ~ 1
+  CESDSQRT_V4 ~ 1
+  CRPSQRT_V2  ~ 1
+  CRPSQRT_V3  ~ 1
+  CRPSQRT_V4  ~ 1
+  AGE_V2 ~ 1
+  AGE_V3 ~ 1
+  AGE_V4 ~ 1
+'
+
+fit_mod <- sem(clpm_age_tvc_mod, data = VETSA, missing = "ML", estimator = "MLR")
+summary(fit_mod, fit.measures = TRUE, standardized = TRUE, rsquare = TRUE)
+fitMeasures(fit_mod, c("cfi","tli","rmsea","srmr"))
+
+
+library(lavaan)
+library(lavaan)
+
+ri_clpm <- '
+  #############################
+  # Random intercept (between-person) factors
+  #############################
+  RI_CESD =~ 1*CESDSQRT_V2 + 1*CESDSQRT_V3 + 1*CESDSQRT_V4
+  RI_CRP  =~ 1*CRPSQRT_V2  + 1*CRPSQRT_V3  + 1*CRPSQRT_V4
+
+  RI_CESD ~~ RI_CESD
+  RI_CRP  ~~ RI_CRP
+  RI_CESD ~~ RI_CRP
+
+  RI_CESD ~ 1
+  RI_CRP  ~ 1
+
+  #############################
+  # Within-person latent states (deviations)
+  #############################
+  wC2 =~ 1*CESDSQRT_V2
+  wC3 =~ 1*CESDSQRT_V3
+  wC4 =~ 1*CESDSQRT_V4
+
+  wR2 =~ 1*CRPSQRT_V2
+  wR3 =~ 1*CRPSQRT_V3
+  wR4 =~ 1*CRPSQRT_V4
+
+  # Within-person means fixed to 0
+  wC2 ~ 0*1; wC3 ~ 0*1; wC4 ~ 0*1
+  wR2 ~ 0*1; wR3 ~ 0*1; wR4 ~ 0*1
+
+  # Observed residual variances: tiny >0 instead of 0
+  CESDSQRT_V2 ~~ 1e-6*CESDSQRT_V2
+  CESDSQRT_V3 ~~ 1e-6*CESDSQRT_V3
+  CESDSQRT_V4 ~~ 1e-6*CESDSQRT_V4
+  CRPSQRT_V2  ~~ 1e-6*CRPSQRT_V2
+  CRPSQRT_V3  ~~ 1e-6*CRPSQRT_V3
+  CRPSQRT_V4  ~~ 1e-6*CRPSQRT_V4
+
+  # Orthogonality: RI factors uncorrelated with within-person states
+  RI_CESD ~~ 0*wC2 + 0*wC3 + 0*wC4
+  RI_CRP  ~~ 0*wR2 + 0*wR3 + 0*wR4
+
+  #############################
+  # Within-person dynamics
+  #############################
+  # Autoregression
+  wC3 ~ a*wC2
+  wC4 ~ a*wC3
+  wR3 ~ b*wR2
+  wR4 ~ b*wR3
+
+  # Cross-lagged
+  wC3 ~ c*wR2
+  wC4 ~ c*wR3
+  wR3 ~ d*wC2
+  wR4 ~ d*wC3
+
+  # Within-time correlations of deviations
+  wC2 ~~ wR2
+  wC3 ~~ wR3
+  wC4 ~~ wR4
+'
+
+fit_ri <- sem(ri_clpm, data = VETSA, missing = "ML", estimator = "MLR")
+summary(fit_ri, fit.measures = TRUE, standardized = TRUE, rsquare = TRUE)
+
+# For fit indices (robust may still be NA, but non-robust should work)
+fitMeasures(fit_ri, c("cfi","tli","rmsea","srmr"))
+fitMeasures(fit_ri, c("cfi.scaled","tli.scaled","rmsea.scaled","srmr"))
+
+
+ri_clpm_age <- '
+  #######################################
+  # Random intercepts (traits)
+  #######################################
+  RI_CESD =~ 1*CESDSQRT_V2 + 1*CESDSQRT_V3 + 1*CESDSQRT_V4
+  RI_CRP  =~ 1*CRPSQRT_V2  + 1*CRPSQRT_V3  + 1*CRPSQRT_V4
+
+  RI_CESD ~~ RI_CRP
+  RI_CESD ~ 1
+  RI_CRP  ~ 1
+
+  # Predict trait levels from age (baseline age)
+  RI_CESD ~ AGE_V2
+  RI_CRP  ~ AGE_V2
+
+  #######################################
+  # Within-person latent states
+  #######################################
+  wC2 =~ 1*CESDSQRT_V2
+  wC3 =~ 1*CESDSQRT_V3
+  wC4 =~ 1*CESDSQRT_V4
+
+  wR2 =~ 1*CRPSQRT_V2
+  wR3 =~ 1*CRPSQRT_V3
+  wR4 =~ 1*CRPSQRT_V4
+
+  wC2 ~ 0*1; wC3 ~ 0*1; wC4 ~ 0*1
+  wR2 ~ 0*1; wR3 ~ 0*1; wR4 ~ 0*1
+
+  # Tiny residuals to keep baseline model admissible
+  CESDSQRT_V2 ~~ 1e-6*CESDSQRT_V2
+  CESDSQRT_V3 ~~ 1e-6*CESDSQRT_V3
+  CESDSQRT_V4 ~~ 1e-6*CESDSQRT_V4
+  CRPSQRT_V2  ~~ 1e-6*CRPSQRT_V2
+  CRPSQRT_V3  ~~ 1e-6*CRPSQRT_V3
+  CRPSQRT_V4  ~~ 1e-6*CRPSQRT_V4
+
+  RI_CESD ~~ 0*wC2 + 0*wC3 + 0*wC4
+  RI_CRP  ~~ 0*wR2 + 0*wR3 + 0*wR4
+
+  #######################################
+  # Within-person dynamics
+  #######################################
+  wC3 ~ a*wC2 + c*wR2
+  wC4 ~ a*wC3 + c*wR3
+  wR3 ~ b*wR2 + d*wC2
+  wR4 ~ b*wR3 + d*wC3
+
+  # Within-time correlations
+  wC2 ~~ wR2
+  wC3 ~~ wR3
+  wC4 ~~ wR4
+'
+fit_age <- sem(ri_clpm_age, data = VETSA, missing = "ML", estimator = "MLR")
+summary(fit_age, fit.measures = TRUE, standardized = TRUE, rsquare = TRUE)
+
+ri_clpm_model2 <- '
+  ##############################
+  # Random intercept factors
+  ##############################
+  RI_CESD =~ 1*CESDSQRT_V2 + 1*CESDSQRT_V3 + 1*CESDSQRT_V4
+  RI_CRP  =~ 1*CRPSQRT_V2  + 1*CRPSQRT_V3  + 1*CRPSQRT_V4
+
+  ##############################
+  # Within-person latent factors
+  ##############################
+  wC2 =~ 1*CESDSQRT_V2
+  wC3 =~ 1*CESDSQRT_V3
+  wC4 =~ 1*CESDSQRT_V4
+  wR2 =~ 1*CRPSQRT_V2
+  wR3 =~ 1*CRPSQRT_V3
+  wR4 =~ 1*CRPSQRT_V4
+
+  # Fix residual variances of observed to ~0 (tiny positive constant)
+  CESDSQRT_V2 ~~ 1e-6*CESDSQRT_V2
+  CESDSQRT_V3 ~~ 1e-6*CESDSQRT_V3
+  CESDSQRT_V4 ~~ 1e-6*CESDSQRT_V4
+  CRPSQRT_V2  ~~ 1e-6*CRPSQRT_V2
+  CRPSQRT_V3  ~~ 1e-6*CRPSQRT_V3
+  CRPSQRT_V4  ~~ 1e-6*CRPSQRT_V4
+
+  ##############################
+  # Autoregressive paths
+  ##############################
+  wC3 ~ a*wC2
+  wC4 ~ a*wC3
+  wR3 ~ b*wR2
+  wR4 ~ b*wR3
+
+  ##############################
+  # Cross-lagged paths
+  ##############################
+  wC3 ~ c*wR2
+  wC4 ~ c*wR3
+  wR3 ~ d*wC2
+  wR4 ~ d*wC3
+
+  ##############################
+  # Age as predictor of deviations
+  ##############################
+  wC2 ~ AGE_V2
+  wC3 ~ AGE_V3
+  wC4 ~ AGE_V4
+  wR2 ~ AGE_V2
+  wR3 ~ AGE_V3
+  wR4 ~ AGE_V4
+
+  ##############################
+  # Variances/covariances
+  ##############################
+  RI_CESD ~~ RI_CRP
+  wC2 ~~ wR2
+  wC3 ~~ wR3
+  wC4 ~~ wR4
+
+  ##############################
+  # Intercepts
+  ##############################
+  RI_CESD ~ 1
+  RI_CRP  ~ 1
+  wC2 ~ 0; wC3 ~ 0; wC4 ~ 0
+  wR2 ~ 0; wR3 ~ 0; wR4 ~ 0
+'
+
+fit_ri2 <- lavaan::sem(
+  ri_clpm_model2,
+  data = VETSA,
+  estimator = "MLR",
+  missing = "ML"
+)
+
+summary(fit_ri2, fit.measures = TRUE, standardized = TRUE, rsquare = TRUE)
+fitMeasures(fit_ri2, c("cfi","tli","rmsea","srmr"))
+
+
+
+
+
+
+
+
+
