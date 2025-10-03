@@ -1,0 +1,260 @@
+library(OpenMx)
+TWINS<-newtwins
+
+mean_impute <- function(df, cols) {
+  for (nm in cols) {
+    # coerce to numeric just in case
+    df[[nm]] <- suppressWarnings(as.numeric(df[[nm]]))
+    m <- mean(df[[nm]], na.rm = TRUE)
+    if (is.nan(m)) m <- 0  # fallback if a column is all-NA
+    df[[nm]][is.na(df[[nm]])] <- m
+  }
+  df
+}
+
+# Example: definition variables
+sel_age <- c("AGE_V2_T1","AGE_V3_T1","AGE_V4_T1","AGE_V2_T2", "AGE_V3_T2", "AGE_V4_T2")
+
+
+
+TWINS <- mean_impute(TWINS, sel_age)
+
+
+# ---------- 0) Build definition times ----------
+TWINS$t3_T1 <- TWINS$AGE_V3_T1 - TWINS$AGE_V2_T1
+TWINS$t4_T1 <- TWINS$AGE_V4_T1 - TWINS$AGE_V2_T1
+TWINS$t3_T2 <- TWINS$AGE_V3_T2 - TWINS$AGE_V2_T2
+TWINS$t4_T2 <- TWINS$AGE_V4_T2 - TWINS$AGE_V2_T2
+
+
+man_T1 <- c("CESDSQRT_V2_T1","CESDSQRT_V3_T1","CESDSQRT_V4_T1")
+man_T2 <- c("CESDSQRT_V2_T2","CESDSQRT_V3_T2","CESDSQRT_V4_T2")
+mans   <- c(man_T1, man_T2)
+defs   <- c("t3_T1","t4_T1","t3_T2","t4_T2")
+
+mz <- subset(TWINS, ZYG2019==1, select=c(mans, defs))
+dz <- subset(TWINS, ZYG2019==2, select=c(mans, defs))
+names(mz)
+# ---------- 1) Shared top model: loadings, ACE blocks, means ----------
+# L: 6(manifests) x 4(latents: i1,s1,i2,s2)
+# Fixed 1's for intercepts; slope loadings use per-row definition variables
+L_vals <- matrix(0, nrow=6, ncol=4, byrow=TRUE)
+L_vals[1,1] <- 1; L_vals[2,1] <- 1; L_vals[3,1] <- 1        # twin1 intercept
+L_vals[4,3] <- 1; L_vals[5,3] <- 1; L_vals[6,3] <- 1        # twin2 intercept
+
+L_labs <- matrix(NA_character_, nrow=6, ncol=4, byrow=TRUE)
+L_labs[2,2] <- "data.t3_T1";  L_labs[3,2] <- "data.t4_T1"   # twin1 slope
+L_labs[5,4] <- "data.t3_T2";  L_labs[6,4] <- "data.t4_T2"   # twin2 slope
+
+L <- mxMatrix(name="L", type="Full", nrow=6, ncol=4, byrow=TRUE,
+              free=FALSE, values=c(L_vals), labels=c(L_labs),
+              dimnames=list(mans, c("i1","s1","i2","s2")))
+
+# Manifest residuals (Theta): diagonal, equal across twins by label
+Theta <- mxMatrix(name="Theta", type="Diag", nrow=6, ncol=6,
+                  free=TRUE, values=.5,
+                  labels=c("e_v2","e_v3","e_v4","e_v2","e_v3","e_v4"),
+                  dimnames=list(mans, mans))
+
+# Latent ACE for growth factors of ONE twin (2x2: [i, s])
+# Cholesky factors
+a <- mxMatrix(
+  name="a", type="Lower", nrow=2, ncol=2, byrow=TRUE,
+  free   = TRUE,
+  values = matrix(c(.6, 0,   .2, .4), 2, 2, byrow=TRUE),   # keep 0 in upper tri
+  labels = matrix(c("ai11", NA, "ai21","ai22"), 2, 2, byrow=TRUE),
+  dimnames = list(c("i","s"), c("i","s"))
+)
+
+# Cholesky for C
+c <- mxMatrix(
+  name="c", type="Lower", nrow=2, ncol=2, byrow=TRUE,
+  free   = FALSE,
+  values = matrix(c(0, 0,   0, 0), 2, 2, byrow=TRUE),
+  labels = matrix(c("ci11", NA, "ci21","ci22"), 2, 2, byrow=TRUE),
+  dimnames = list(c("i","s"), c("i","s"))
+)
+
+# Cholesky for E
+e <- mxMatrix(
+  name="e", type="Lower", nrow=2, ncol=2, byrow=TRUE,
+  free   = TRUE,
+  values = matrix(c(.5, 0,   .1, .4), 2, 2, byrow=TRUE),
+  labels = matrix(c("ei11", NA, "ei21","ei22"), 2, 2, byrow=TRUE),
+  dimnames = list(c("i","s"), c("i","s"))
+)
+
+A <- mxAlgebra(name="A", expression=a %*% t(a))  # 2x2
+C <- mxAlgebra(name="C", expression=c %*% t(c))  # 2x2
+E <- mxAlgebra(name="E", expression=e %*% t(e))  # 2x2
+S_within <- mxAlgebra(name="S_within", expression=A + C + E)  # 2x2
+
+# Cross-twin ACE blocks (MZ: rA=1; DZ: rA=.5); C shared fully; E uncorrelated
+S_cross_MZ <- mxAlgebra(name="S_cross_MZ", expression= A + C)            # 2x2
+S_cross_DZ <- mxAlgebra(name="S_cross_DZ", expression= 0.5 %x% A + C)    # 2x2
+
+# Stack latent covariance (4x4) for each zygosity: [i1 s1 | i2 s2]
+S_lat_MZ <- mxAlgebra(name="S_lat_MZ",
+                      expression = rbind( cbind(S_within,   S_cross_MZ),
+                                          cbind(S_cross_MZ, S_within) ) )
+
+S_lat_DZ <- mxAlgebra(name="S_lat_DZ",
+                      expression = rbind( cbind(S_within,   S_cross_DZ),
+                                          cbind(S_cross_DZ, S_within) ) )
+
+# Latent means (equal across twins); m = [mean_i, mean_s]
+m <- mxMatrix(name="m", type="Full", nrow=2, ncol=1, byrow=TRUE,
+              free=TRUE, values=c(3,0), labels=c("mean_i","mean_s"),
+              dimnames=list(c("i","s"), "1"))
+m_lat <- mxAlgebra(name="m_lat",
+                   expression = rbind(m, m))  # 4x1: [i1 s1 i2 s2]^T
+
+# Expected manifest means: 1x6 = t( L %*% m_lat )
+expMean <- mxAlgebra(name="expMean", expression = t(L %*% m_lat))
+
+# Expected manifest covariances (group-specific): 6x6
+expCov_MZ <- mxAlgebra(name="expCov_MZ", expression = L %*% S_lat_MZ %*% t(L) + Theta)
+expCov_DZ <- mxAlgebra(name="expCov_DZ", expression = L %*% S_lat_DZ %*% t(L) + Theta)
+
+top <- mxModel("TOP",
+               Theta,                 # keep residuals here
+               a, c, e, A, C, E,     # ACE pieces
+               S_within, S_cross_MZ, S_cross_DZ, S_lat_MZ, S_lat_DZ,
+               m, m_lat               # latent means
+               # NO L, NO expMean, NO expCov_* here
+)
+
+## --- MZ group: add its own L and expected moments ---
+L_MZ <- mxMatrix(name="L_MZ", type="Full", nrow=6, ncol=4, byrow=TRUE,
+                 free=FALSE,
+                 values=matrix(c(
+                   1, 0, 0, 0,   # CESD V2 T1: i1=1, s1=0
+                   1, 0, 0, 0,   # CESD V3 T1: i1=1, s1=data.t3_T1 (set via label)
+                   1, 0, 0, 0,   # CESD V4 T1: i1=1, s1=data.t4_T1
+                   0, 0, 1, 0,   # CESD V2 T2: i2=1, s2=0
+                   0, 0, 1, 0,   # CESD V3 T2: i2=1, s2=data.t3_T2
+                   0, 0, 1, 0    # CESD V4 T2: i2=1, s2=data.t4_T2
+                 ), 6, 4, byrow=TRUE),
+                 labels=matrix(c(
+                   NA,           NA, NA, NA,
+                   NA,     "data.t3_T1", NA, NA,
+                   NA,     "data.t4_T1", NA, NA,
+                   NA,           NA, NA, NA,
+                   NA,           NA, NA, "data.t3_T2",
+                   NA,           NA, NA, "data.t4_T2"
+                 ), 6, 4, byrow=TRUE),
+                 dimnames=list(mans, c("i1","s1","i2","s2"))
+)
+
+expMean_MZ <- mxAlgebra(name="expMean_MZ", expression = t(L_MZ %*% TOP.m_lat))
+expCov_MZ  <- mxAlgebra(name="expCov_MZ",
+                        expression = L_MZ %*% TOP.S_lat_MZ %*% t(L_MZ) + TOP.Theta)
+
+MZ <- mxModel("MZ",
+              L_MZ, expMean_MZ, expCov_MZ,
+              mxData(observed=mz, type="raw"),
+              mxExpectationNormal(covariance="expCov_MZ", means="expMean_MZ", dimnames=mans),
+              mxFitFunctionML()
+)
+
+## --- DZ group: same idea ---
+L_DZ <- mxMatrix(name="L_DZ", type="Full", nrow=6, ncol=4, byrow=TRUE,
+                 free=FALSE,
+                 values=matrix(c(
+                   1, 0, 0, 0,
+                   1, 0, 0, 0,
+                   1, 0, 0, 0,
+                   0, 0, 1, 0,
+                   0, 0, 1, 0,
+                   0, 0, 1, 0
+                 ), 6, 4, byrow=TRUE),
+                 labels=matrix(c(
+                   NA,           NA, NA, NA,
+                   NA,     "data.t3_T1", NA, NA,
+                   NA,     "data.t4_T1", NA, NA,
+                   NA,           NA, NA, NA,
+                   NA,           NA, NA, "data.t3_T2",
+                   NA,           NA, NA, "data.t4_T2"
+                 ), 6, 4, byrow=TRUE),
+                 dimnames=list(mans, c("i1","s1","i2","s2"))
+)
+
+expMean_DZ <- mxAlgebra(name="expMean_DZ", expression = t(L_DZ %*% TOP.m_lat))
+expCov_DZ  <- mxAlgebra(name="expCov_DZ",
+                        expression = L_DZ %*% TOP.S_lat_DZ %*% t(L_DZ) + TOP.Theta)
+
+DZ <- mxModel("DZ",
+              L_DZ, expMean_DZ, expCov_DZ,
+              mxData(observed=dz, type="raw"),
+              mxExpectationNormal(covariance="expCov_DZ", means="expMean_DZ", dimnames=mans),
+              mxFitFunctionML()
+)
+
+## --- Multigroup wrapper (unchanged) ---
+ACE_LGCM <- mxModel("ACE_LGCM_CESD",
+                    top, MZ, DZ,
+                    mxFitFunctionMultigroup(c("MZ","DZ"))
+)
+
+fit <- mxTryHard(ACE_LGCM)
+summary(fit)
+Derived <- mxModel("Derived",
+                   mxAlgebra(name="Var_i_A", expression= TOP.A[1,1]),
+                   mxAlgebra(name="Var_i_C", expression= TOP.C[1,1]),
+                   mxAlgebra(name="Var_i_E", expression= TOP.E[1,1]),
+                   mxAlgebra(name="Var_s_A", expression= TOP.A[2,2]),
+                   mxAlgebra(name="Var_s_C", expression= TOP.C[2,2]),
+                   mxAlgebra(name="Var_s_E", expression= TOP.E[2,2]),
+                   mxAlgebra(name="Var_i",   expression= Var_i_A + Var_i_C + Var_i_E),
+                   mxAlgebra(name="Var_s",   expression= Var_s_A + Var_s_C + Var_s_E),
+                   mxAlgebra(name="h2_i",    expression= Var_i_A / Var_i),
+                   mxAlgebra(name="c2_i",    expression= Var_i_C / Var_i),
+                   mxAlgebra(name="e2_i",    expression= Var_i_E / Var_i),
+                   mxAlgebra(name="h2_s",    expression= Var_s_A / Var_s),
+                   mxAlgebra(name="c2_s",    expression= Var_s_C / Var_s),
+                   mxAlgebra(name="e2_s",    expression= Var_s_E / Var_s))
+fit2 <- mxTryHard(mxModel(fit, Derived))
+summary(fit2)
+mxEval(cbind(Derived.Var_s_A, Derived.Var_s_C, Derived.Var_s_E,
+             Derived.h2_s,     Derived.c2_s,     Derived.e2_s), fit2)
+
+boot_results <- mxBootstrap(fit, replications=100) 
+boot_summary <- summary(boot_results,boot.quantile=c(0.025,0.975))
+boot_summary
+wantCIs <- c(
+  "Derived.Var_i_A","Derived.Var_i_C","Derived.Var_i_E",
+  "Derived.Var_s_A","Derived.Var_s_C","Derived.Var_s_E",
+  "Derived.h2_i","Derived.c2_i","Derived.e2_i",
+  "Derived.h2_s","Derived.c2_s","Derived.e2_s"
+)
+
+fit_ci <- mxRun(mxModel(fit2, mxCI(wantCIs)), intervals = TRUE)
+
+# View the CI table
+summary(fit_ci)$CI
+
+PhenLat <- mxModel("PhenLat",
+                   mxAlgebra(name="S_ph",        expression = TOP.A + TOP.C + TOP.E),  # 2x2
+                   
+                   # totals
+                   mxAlgebra(name="Var_i_ph",    expression = S_ph[1,1]),
+                   mxAlgebra(name="Var_s_ph",    expression = S_ph[2,2]),
+                   mxAlgebra(name="Cov_is_ph",   expression = S_ph[1,2]),
+                   mxAlgebra(name="r_is_ph",     expression = Cov_is_ph / sqrt(Var_i_ph * Var_s_ph)),
+                   
+                   # latent means (equal across twins in your build)
+                   mxAlgebra(name="Mean_i",      expression = TOP.m[1,1]),
+                   mxAlgebra(name="Mean_s",      expression = TOP.m[2,1])
+)
+
+fit_ph <- mxRun(mxModel(fit, PhenLat))
+
+
+# (Optional) CIs for these:
+fit_ph_ci <- mxRun(mxModel(fit_ph, mxCI(c("PhenLat.Var_i_ph","PhenLat.Var_s_ph",
+                                          "PhenLat.Cov_is_ph","PhenLat.r_is_ph",
+                                          "PhenLat.Mean_i","PhenLat.Mean_s"))),
+                   intervals = TRUE)
+summary(fit_ph_ci)$CI
+
+                             
