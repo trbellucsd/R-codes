@@ -1,4 +1,89 @@
+#2 Variables
 
+twins<-VETSA
+
+
+## Creating MZ and DZ data sets ##
+twinA <- twins[twins$TWIN=="1",]
+twinB <- twins[twins$TWIN=="2",]
+
+newtwins <- merge(twinA, twinB, by=c("CASE","ZYG2019"),all.x=TRUE, all.y=TRUE,suffixes=c("_T1","_T2"))
+names(newtwins)
+
+df2 <- newtwins
+
+# Intercepts only: i_* for Twin1 (T1) then Twin2 (T2)
+selVars <- c(
+  "i_cesd_Scores_T1","i_crp_Scores_T1",
+  "i_cesd_Scores_T2","i_crp_Scores_T2"
+)
+
+nv  <- 2                 # traits per twin (intercepts only: CESD, CRP)
+ntv <- nv * 2            # total columns = traits * 2 twins
+
+# Be explicit with select=
+mzdata <- subset(df2, ZYG2019 == 1, select = selVars)
+dzdata <- subset(df2, ZYG2019 == 2, select = selVars)
+
+psych::describe(mzdata)
+psych::describe(dzdata)
+
+# Labels resize automatically with nv=2
+aLabs <- paste("a", rev(nv + 1 - sequence(1:nv)), rep(1:nv, nv:1), sep = "")
+cLabs <- paste("c", rev(nv + 1 - sequence(1:nv)), rep(1:nv, nv:1), sep = "")
+eLabs <- paste("e", rev(nv + 1 - sequence(1:nv)), rep(1:nv, nv:1), sep = "")
+
+multi_ace <- mxModel(
+  "Correlated factors",
+  mxModel("top",
+    mxMatrix(name="Means", type="Full", nrow=1, ncol=nv, free=TRUE, labels=c("m1","m2")),
+    mxAlgebra(name="expMean", cbind(Means, Means)),
+    mxMatrix(name="inc", type="Lower", nrow=1, ncol=1, free=FALSE, values=1),
+    mxMatrix(name="A", type="Symm", nrow=nv, ncol=nv, free=TRUE, values=0, labels=aLabs, lbound=-20, ubound=20),
+    mxMatrix(name="C", type="Symm", nrow=nv, ncol=nv, free=TRUE, values=0, labels=cLabs, lbound=-25, ubound=20),
+    mxMatrix(name="E", type="Symm", nrow=nv, ncol=nv, free=TRUE,            labels=eLabs, lbound=-20, ubound=20),
+    mxAlgebra(name="expCovMZ", rbind(cbind(A+C+E, A+C), cbind(A+C, A+C+E))),
+    mxAlgebra(name="expCovDZ", rbind(cbind(A+C+E, 0.5%x%A + C), cbind(0.5%x%A + C, A+C+E))),
+    mxAlgebra(name="corrP", cov2cor(A+C+E)),
+    mxAlgebra(name="corrA", cov2cor(A)),
+    mxAlgebra(name="corrE", cov2cor(E))
+    # ⬇️ If you had hard-coded CI indices for the 4-trait case, remove or redo them.
+    # mxCI(c("top.corrP", "top.corrA", "top.corrE"))   # request CIs on whole matrices (optional)
+  ),
+  mxModel("MZ", mxData(mzdata, type="raw"), mxExpectationNormal("top.expCovMZ", means="top.expMean", dimnames=selVars), mxFitFunctionML()),
+  mxModel("DZ", mxData(dzdata, type="raw"), mxExpectationNormal("top.expCovDZ", means="top.expMean", dimnames=selVars), mxFitFunctionML()),
+  mxFitFunctionMultigroup(c("MZ","DZ"))
+)
+
+# Start, fit, and summarize
+uls      <- mxAutoStart(multi_ace)
+uls_fit  <- mxTryHard(mxAutoStart(uls), extraTries = 50)
+summary(uls_fit)
+
+multi_ace_fit <- mxTryHard(uls_fit)
+summary(omxRunCI(multi_ace_fit, optimizer="SLSQP"), verbose=FALSE)
+summary(multi_ace_fit)
+
+# AE model
+multi_ae <- omxSetParameters(mxModel(multi_ace_fit, name="AE"), labels = cLabs, free = FALSE, values = 0)
+multi_ae_fit <- mxTryHard(multi_ae)
+summary(multi_ae_fit)
+
+# CE model
+multi_ce <- omxSetParameters(mxModel(multi_ace_fit, name="CE"), labels = aLabs, free = FALSE, values = 0)
+multi_ce_fit <- mxTryHard(multi_ce)
+summary(multi_ce_fit)
+
+# E model
+multi_e <- mxModel(multi_ace_fit, name="E")
+multi_e <- omxSetParameters(multi_e, labels = aLabs, free = FALSE, values = 0)
+multi_e <- omxSetParameters(multi_e, labels = cLabs, free = FALSE, values = 0)
+multi_e_fit <- mxTryHard(multi_e)
+summary(multi_e_fit)
+
+mxCompare(multi_ace_fit, c(multi_ae_fit, multi_ce_fit, multi_e_fit))
+
+#Four Variables
 
 twins<-VETSA
 
