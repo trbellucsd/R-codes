@@ -1,0 +1,1 @@
+cor(VETSA$PSQICOMP3_V3, VETSA$PSQITOT_CLASSIC_V3, use = "complete.obs", method = "pearson")
