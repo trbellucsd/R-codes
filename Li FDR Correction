@@ -1,0 +1,63 @@
+# Input p-values
+p_values <- c(
+  .109,
+  .0001,
+  .0001,
+  .720,
+  .003,
+  .584,
+  .010,
+  .0001,
+  .001,
+  .009
+)
+
+# Function to estimate pi_0 (proportion of true null hypotheses)
+# Using Storey's method as a simple approximation
+estimate_pi0 <- function(pvals, lambda = 0.5) {
+  # Count number of p-values greater than lambda
+  m <- length(pvals)
+  pi0 <- sum(pvals > lambda) / (m * (1 - lambda))
+  # Ensure pi0 is between 0 and 1
+  pi0 <- min(max(pi0, 0), 1)
+  return(pi0)
+}
+
+# Estimate pi_0
+pi0 <- estimate_pi0(p_values)
+cat("Estimated pi_0:", pi0, "\n")
+
+# Perform BH FDR correction adjusted by pi_0
+# The adjusted p-value is p * (m / (i * pi_0)) where i is the rank
+fdr_correct <- function(pvals, pi0) {
+  m <- length(pvals)
+  # Store original indices
+  indices <- seq_along(pvals)
+  # Sort p-values with indices
+  sorted_data <- data.frame(p = pvals, index = indices)
+  sorted_data <- sorted_data[order(sorted_data$p), ]
+  sorted_p <- sorted_data$p
+  sorted_indices <- sorted_data$index
+  
+  # Compute adjusted p-values
+  adjusted_p <- rep(NA, m)
+  for (i in 1:m) {
+    adjusted_p[i] <- min(sorted_p[i] * m / (i * pi0), 1)
+  }
+  # Ensure monotonicity (working from largest to smallest)
+  for (i in (m-1):1) {
+    adjusted_p[i] <- min(adjusted_p[i], adjusted_p[i+1])
+  }
+  
+  # Map back to original order
+  result <- data.frame(p = sorted_p, adjusted_p = adjusted_p, index = sorted_indices)
+  result <- result[order(result$index), ]
+  return(result$adjusted_p)
+}
+
+# Compute FDR-corrected p-values
+fdr_p_values <- fdr_correct(p_values, pi0)
+
+# Output results
+cat("Original p-values:", p_values, "\n")
+cat("FDR-corrected p-values:", round(fdr_p_values, 5), "\n")
