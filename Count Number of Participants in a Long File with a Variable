@@ -1,0 +1,2 @@
+> ADNI_sub_test <- subset(ADNI_sub, complete.cases(PRECUNEUS_AVG,CP_GROUP_APOE) & MCI_status ==0)
+> length(unique(ADNI_sub_test$RID))
