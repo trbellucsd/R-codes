@@ -1,0 +1,19 @@
+p <-c(
+  .0001,
+  .0001,
+  .0001,
+  .904,
+  .0001,
+  .410,
+  .0001,
+  .0001,
+  .0001,
+  .0001
+)
+
+p.adjust(p, method = "fdr", n = length(p))
+
+
+p.adjust.methods
+# c("holm", "hochberg", "hommel", "bonferroni", "BH", "BY",
+#   "fdr", "none")
