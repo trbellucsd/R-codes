@@ -1,0 +1,1471 @@
+
+#*** Loading Required/Useful Libraries ##
+setwd("L:/Twin Analysis/10092020")
+require(OpenMx)   #Loads OpenMx
+require(psych)   #Loads Psych package
+
+library(devtools)
+library(umx)
+library (OpenMx)
+library (haven)
+library (dplyr)
+library(car)
+library(psych) 
+source("GenEpiHelperFunctions.R")
+source("polychoricMeansMatrix3.R")
+
+library(haven)
+
+umx::umx_set_optimizer(opt="SLSQP")
+mxOption(NULL,"mvnRelEps",0.0055)
+mxOption(NULL, 'Number of Threads', parallel::detectCores())
+
+twins <- read_sav("twindata09162021.sav")
+View(twins)
+
+twins$RATE_V1C <- ordered(twins$RATE_V1C, levels = 0:1,labels = c("0", "1")) # conversion
+twins$RATE_V2C <- ordered(twins$RATE_V2C, levels = 0:1,labels = c("0", "1")) # conversion
+twins$RATE_V3C <- ordered(twins$RATE_V3C, levels = 0:1,labels = c("0", "1")) # conversion
+(twins$RATE_V1C)
+
+twins$WORRY_V1C <- ordered(twins$WORRY_V1C, levels = 0:1,labels = c("0", "1")) # conversion
+twins$WORRY_V2C <- ordered(twins$WORRY_V2C, levels = 0:1,labels = c("0", "1")) # conversion
+twins$WORRY_V3C <- ordered(twins$WORRY_V3C, levels = 0:1,labels = c("0", "1")) # conversion
+
+
+twins$CONCERN_V1C <- ordered(twins$CONCERN_V1C, levels = 0:1,labels = c("0", "1")) # conversion
+twins$CONCERN_V2C <- ordered(twins$CONCERN_V2C, levels = 0:1,labels = c("0", "1")) # conversion
+twins$CONCERN_V3C <- ordered(twins$CONCERN_V3C, levels = 0:1,labels = c("0", "1")) # conversion
+
+twins$Q13HSOIc <- ordered(twins$Q13HSOIc, levels = 0:1,labels = c("0", "1")) # conversion
+
+## Creating MZ and DZ data sets ##
+twinA <- twins[twins$twin=="A",]
+twinB <- twins[twins$twin=="B",]
+
+newtwins <- merge(twinA, twinB, by=c("case","ZYG2019"),all.x=TRUE, all.y=TRUE,suffixes=c("_T1","_T2"))
+Vie(newtwins)
+
+#  # Making data sets of Just MZ & DZ 
+MZdata <- as.data.frame(subset(newtwins,ZYG2019==1))
+DZdata <- as.data.frame(subset(newtwins,ZYG2019==2))
+#  
+names(MZdata)
+
+
+# Bivariate - continuous + ordinal
+
+# Select Ordinal Variables
+varsO		<- c(varsO		<- c("Q13HSOIc_T1", "WORRY_V1C_T1", "WORRY_V2C_T1", "WORRY_V3C_T1",
+                        "Q13HSOIc_T2", "WORRY_V1C_T2", "WORRY_V2C_T2", "WORRY_V3C_T2"))
+nth       	<- 1            				 
+nvo       	<- 4                         
+
+newtwins[varsO]	<- mxFactor( x=newtwins[,varsO], levels=c(0:nth)) 
+newtwins[varsO]	<- mxFactor(newtwins[varsO], levels=c(0, 1))
+psych::describe(newtwins[varsO])
+# Crappy cell frequencies in bottom r-hand corner. Consider collapsing.
+table(MZdata$RATE_V1C_T1,MZdata$RATE_V1C_T2)
+#   
+#     1  2  3  4  5
+#  1 41 38 20 16  2
+#  2 39 95 43 33 14
+#  3 27 50 38 22  9
+#  4 10 31 26 23 10
+#  5  8  7 11  8  5
+
+# wtquant   <- quantile(ordData[,c('wt1','wt2')],(0:(nth+1))/(nth+1),na.rm=TRUE)
+# for (i in c('wt1','wt2')) { ordData[,i] <- cut(ordData[,i], breaks=wtquant, labels=c(0:nth)) }
+
+# Select Variables for Analysis
+# List all twin 1 variables, followed by all twin 2 variables. Don't mix. 
+selVars    = c("Q13HSOIc_T1", "WORRY_V1C_T1", "WORRY_V2C_T1", "WORRY_V3C_T1",
+               "Q13HSOIc_T2", "WORRY_V1C_T2", "WORRY_V2C_T2", "WORRY_V3C_T2")
+nv        	= 4                   		
+ntv       	= nv*2
+mzdata		= subset(newtwins, ZYG2019==1,selVars) 
+dzdata		= subset(newtwins, ZYG2019==2,selVars) 
+# Select Ordinal Variables
+varsO		<- c("Q13HSOIc_T1", "WORRY_V1C_T1", "WORRY_V2C_T1", "WORRY_V3C_T1",
+                        "Q13HSOIc_T2", "WORRY_V1C_T2", "WORRY_V2C_T2", "WORRY_V3C_T2")
+
+psych::describe(mzdata)
+psych::describe(dzdata)
+
+nv     	= length(selVars)/2     
+ntv    	= nv*2    
+thVals 	= 0.5
+aLabs  	= paste("a",rev(nv+1-sequence(1:nv)),rep(1:nv,nv:1),sep="")
+cLabs  	= paste("c",rev(nv+1-sequence(1:nv)),rep(1:nv,nv:1),sep="")
+eLabs  	= paste("e",rev(nv+1-sequence(1:nv)),rep(1:nv,nv:1),sep="") 
+
+
+aVals		= c(.60, .87,.86,.09,.37,.79); 	
+cVals	 	= c(.02,-.14,-.08,.46,-.13,-.36); 	valDiag(cVals,6)
+eVals   	= c(.40,.39,.44,.4,.4,.4);  	valDiag(eVals,6)
+
+lbTh   <- matrix(rep(c(-3,(rep(0.001,nth-1))),nvo),nrow=nth,ncol=nvo)   # lower bounds for thresholds
+ubTh   <- matrix(rep(c(5,(rep(3,nth-1))),nvo),nrow=nth,ncol=nvo)     	# lower bounds for thresholds
+labTh  <- c(paste("v2","t",1:nth,sep=""))
+
+umx::umx_set_optimizer(opt="SLSQP")
+mxOption(NULL,"mvnRelEps",0.0055)
+mxOption(NULL, 'Number of Threads', parallel::detectCores())
+
+bivariate = mxModel("ACE",
+                    mxModel("top",
+                            mxMatrix(	name="Means", 		type="Full", nrow=1, ncol=nv, free=c(T,T,T,T), labels=c("m1","m2", "m3","m4"),values=c(0,0,0)), # Mean matrix for one twin. The 2nd variable is ordinal, mean of zero.
+                            mxAlgebra(name="expMean", 	cbind(Means,Means)), # Mean matrices for twin 1 and twin 2
+                            mxMatrix( name="th",			type="Full",  nrow=1, ncol=nv, free=T, labels=varsO), 	# Threshold matrix for one twin
+                            mxMatrix( name="inc",    		type="Lower", nrow=1, ncol=1, free=F, values=1),
+                            mxAlgebra(name="expTH", 		expression= cbind(inc %*% th,inc %*% th)),
+                            mxMatrix(	name="A",			type="Symm", nrow=nv, ncol=nv, free=T, labels=aLabs, lbound= -5, ubound= 20), 		# Constrains element [2,2] to 1
+                            mxMatrix(	name="C",			type="Symm", nrow=nv, ncol=nv, free=T, labels=cLabs, lbound= -5, ubound=20), 		# Constrains element [2,2] to 1
+                            mxMatrix(	name="E",			type="Symm", nrow=nv, ncol=nv, free=T, labels=eLabs,  lbound= -5, ubound=20),
+                            mxAlgebra(name="expCovMZ",	expression= rbind( cbind(A+C+E, A+C  ), cbind(  A+C, A+C+E))),
+                            mxAlgebra(name="expCovDZ",	expression= rbind( cbind(A+C+E, 0.5%x%A+C), cbind( 0.5%x%A+C, A+C+E) )),
+                            mxAlgebra(	name="corrP",	expression=cov2cor(A+C+E)),
+                            mxAlgebra(	name="corrA",	expression=cov2cor(A)),
+                            mxAlgebra(	name="corrE",	expression=cov2cor(E)),
+                            mxCI(c("a11", "a21", "a31","a41",
+                                          "a22", "a32", "a42",
+                                                  "a33","a43",
+                                   "a44"
+                                 )), #VC[1,10]
+                            mxAlgebra(name="VC", expression=cbind(A,C,E,A/(A+C+E),C/(A+C+E),E/(A+C+E)), dimnames=list(rep('VC',nv),rep(c('A','C','E','SA','SC','SE'),each=nv)) ) ),
+
+                    mxModel("MZ", mxData(mzdata, type ="raw"), mxExpectationNormal("top.expCovMZ", means="top.expMean", dimnames=selVars, thresholds="top.expTH", threshnames=varsO), mxFitFunctionML() ),
+                    mxModel("DZ", mxData(dzdata, type ="raw"), mxExpectationNormal("top.expCovDZ", means="top.expMean", dimnames=selVars, thresholds="top.expTH", threshnames=varsO), mxFitFunctionML() ),
+                    mxFitFunctionMultigroup(c("MZ","DZ"))
+)
+omxGetParameters(bivariate)
+
+ # mxCheckIdentification(multi_PBA)
+
+ # Run unweighted least squares to find better start values
+ uls <- mxAutoStart(bivariate)
+ summary(uls_fit 	<- mxTryHardOrdinal(uls, intervals=F))
+ summary(uls_fit,verbose = T)
+ avals2<- uls_fit$submodels$top$corrA$result
+ avals2<-  CP2factor_RATE_fit$submodels$top$psi_a
+ cvals2<-CP2factor_RATE_fit$submodels$top$psi_c
+ evals2<-CP2factor_RATE_fit$submodels$top$psi_e
+ x<-CP2factor_RATE_fit$submodels$top$corrA
+
+ load("RATE_OM_CP2factor_RATE_fit.rda")
+# # ACE
+ summary( bivariate_fit 		<- mxTryHardOrdinal( uls_fit,extraTries=1, greenOK=FALSE,checkHess=FALSE,intervals=F) )
+ bivariate_fitci<-summary(omxRunCI(bivariate_fit, optimizer = "SLSQP"),verbose=T)
+ summary()
+ save(bivariate_fit, file = "RATE_OM_bivariate_fit.rda")
+ save(bivariate_fitci, file = "RATE_OM_bivariate_fitci.rda")
+ options(max.print = 3000)
+ bivariate_fitci
+
+  # summary( bivariate_fit )
+#
+ bivariate_AE 				<- mxModel(bivariate_fit,name="AE")
+ bivariate_AE 				<- omxSetParameters(bivariate_AE, aLabs, free=T, values=20)
+ bivariate_AE 				<- omxSetParameters(bivariate_AE, cLabs, free=F, values=0)
+ summary(bivariate_AE_fit 	<- mxTryHard(bivariate_AE, extraTries=25, greenOK=TRUE,checkHess=FALSE,intervals=T))
+ summary(bivariate_AE_fit, verbose=T )
+ save(bivariate_AE_fit, file = "RATE_OM_bivariate_AE_fit.rda")
+ bivariate_AE_fitci<-summary(omxRunCI(bivariate_AE_fit, optimizer = "SLSQP"),verbose=T)
+ save(bivariate_AE_fitci, file = "RATE_OM_bivariate_AE_fitci.rda")
+
+ # print(summary(bivariate_AE_fit)$CI)
+# bivariate_AE_fit$top$algebras$VC$result
+#
+ #> bivariate_AE_fit$top$algebras$VC$result
+# #A         A         A C C C          E          E         E         SA         SA         SA SC SC SC
+# #VC 6.6552621 6.9622090 3.4126283 0 0 0 4.03941405 0.76697946 1.2876367 0.62229674 0.90076844 0.72605019  0  0  0
+# #VC 6.9622090 4.2187641 3.7792171 0 0 0 0.76697946 9.31395636 2.6943771 0.90076844 0.31174546 0.58378962  0  0  0
+# #VC 3.4126283 3.7792171 3.0499853 0 0 0 1.28763672 2.69437710 3.8898918 0.72605019 0.58378962 0.43948693  0  0  0
+# #SE          SE         SE
+# #VC 0.377703260 0.099231564 0.27394981
+# #VC 0.099231564 0.688254544 0.41621038
+# #VC 0.273949813 0.416210378 0.56051307# CE model
+ bivariate_CE 				<- mxModel(bivariate_fit,name="CE")
+ bivariate_CE 				<- omxSetParameters(bivariate_CE, aLabs, free=F, values=0)
+ bivariate_CE 				<- omxSetParameters(bivariate_CE, cLabs, free=T, values=20)
+ summary(bivariate_CE_fit 	<- mxTryHard(bivariate_CE, extraTries=25, greenOK=TRUE,checkHess=FALSE,intervals=T))
+ summary(bivariate_CE_fit, verbose=T )
+ save(bivariate_CE_fit, file = "RATE_OM_bivariate_CE_fit.rda")
+subs 						<- c(cp_1F_PBA_fit, bivariate_AE_fit, bivariate_CE_fit)
+comps						<- mxCompare(bivariate_fit,subs );comps
+
+print(summary(bivariate_CE_fit)$CI)
+bivariate_CE_fit$top$algebras$VC$result
+
+# Common Pathway 2 factors 
+nVariables	= 6
+nFactors	= 2
+#thVals 	= 0.5
+#nth 		= 1
+#svLTh  	= 1.1    # start value for first threshold
+#svITh  	= 1.0    # start value for increments
+#svTh   	= matrix(rep(c(svLTh,(rep(svITh,nth-1)))),nrow=nth,ncol=nv)     # start value for thresholds
+#round(auto_ACE_fit$matrices$thresh$values,2)
+#Th_val		= c(1.2,1.1,1.1)
+#Th_lb   	= matrix(rep(c(-3,(rep(0.001,nth-1))),nv),nrow=nth,ncol=nv)     # lower bounds for thresholds
+#Th_lab  	= c(paste("th",1:nth,"v1",sep=""),paste("th",1:nth,"v2",sep=""),paste("th",1:nth,"v3",sep=""))
+psi_lab_a	= c("ia11","ia21","ia22")
+psi_lab_c	= c("ic11","ic21","ic22")
+psi_lab_e	= c("ie11","ie21","ie22")
+#round(t(diag2vec(auto_ACE_fit$matrices$psi_c$values)),2)
+psi_a_val	= 0.7
+psi_c_val	= 0.2
+psi_e_val	= 0.2
+res_lab_a	= c("res_a1","res_a2","res_a3","res_a4","res_a5","res_a6")
+res_lab_c	= c("res_c1","res_c2","res_c3","res_c4","res_c5","res_c6")
+res_lab_e	= c("res_e1","res_e2","res_e3","res_e4","res_e5","res_e6")
+frE   	= c(T,T,T,F,F,F);  	valDiag(frE,6)
+frE2<-valDiag(frE,6)
+aVals2		= c(0.50,1); 	valDiag(aVals2,2)
+cVals2	 	= c(0.20,1); 	valDiag(cVals2,2)
+eVals2   	= c(.30,1);  	valDiag(eVals2,2)
+
+load("WORRY_OM_cp_2F_PBA_fitci.rda")
+summary(WORRY_OM_FIT)
+avals3<-  WORRY_OM_FIT$submodels$top$psi_a$values
+cvals3<-WORRY_OM_FIT$submodels$top$psi_c$values
+evals3<-WORRY_OM_FIT$submodels$top$psi_e$values
+lambda3<-WORRY_OM_FIT$submodels$top$lamba$values
+ep_a<-WORRY_OM_FIT$submodels$top$epsilon_a$values
+ep_c<-WORRY_OM_FIT$submodels$top$epsilon_c$values
+ep_e<-WORRY_OM_FIT$submodels$top$epsilon_e$values
+th3<-WORRY_OM_FIT$submodels$top$th$values
+
+#
+
+loadS 		= 0.8
+loadF 		= T
+lamba_lab	= c("f11","f21", "f31","f41", "f51","f61", "f12","f22","f32","f42", "f52","f62")
+names(varsO)
+
+#Zero loeading for nonsignificant variables;
+cp_2F_RATE = mxModel("ACE",
+                     mxModel("top",
+                             mxMatrix(	name="Mean", 		type="Full", nrow=1, ncol=6, free=c(T,T,T,F,F,F), labels=c("m1","m2","m3","m4","m5","m6"), values=0),
+                             mxAlgebra(name="expMean", 	expression= cbind(Mean, Mean)),  
+                             mxAlgebra(name="expMean", 	expression= cbind(Mean, Mean)),  
+                             mxMatrix( name="th",			type="Full",  nrow=1, ncol=6, free=T, values = th3, labels=varsO), 	# Threshold matrix for one twin
+                             mxMatrix(name="psi_a", 		type="Symm", nrow = nFactors, ncol = nFactors, free = T, labels = psi_lab_a, values = avals3, lbound = -10, ubound = 20), #  
+                             mxMatrix(name="psi_c", 		type="Symm", nrow = nFactors, ncol = nFactors, free = T, labels = psi_lab_c, values = cvals3, lbound = -10, ubound = 20), #  
+                             mxMatrix(name="psi_e", 		type="Symm", nrow = nFactors, ncol = nFactors, free = T, labels = psi_lab_e, values = evals3, lbound = -10, ubound = 20), #  
+                             mxMatrix(name="lamba",		type="Full", nrow = nv, ncol = nFactors, free = c(T,T,T,F,F,F,F,F,F,T,T,T), labels= lamba_lab, values = lambda3, lbound = 0, ubound = 20), # 
+                             mxMatrix(name="epsilon_a", 	type="Diag", nrow = nv, ncol = nv, free = T, labels = res_lab_a, values =   ep_a, lbound = -40, ubound = 40), #  
+                             mxMatrix(name="epsilon_c", 	type="Diag", nrow = nv, ncol = nv, free = T, labels = res_lab_c, values =   ep_c, lbound = -40, ubound = 40), #  
+                             mxMatrix(name="epsilon_e", 	type="Diag", nrow = nv, ncol = nv, free = frE, labels = res_lab_e, values = ep_e, lbound = -40, ubound = 40), #  
+                             mxAlgebra(name="A", 			expression= lamba %&% psi_a + epsilon_a),
+                             mxAlgebra(name="C", 			expression= lamba %&% psi_c + epsilon_c),
+                             mxAlgebra(name="E", 			expression= lamba %&% psi_e + epsilon_e),  
+                             mxAlgebra(name="expCovMZ", 	expression= rbind( cbind(A+C+E, A+C), cbind(A+C, A+C+E))),
+                             mxAlgebra(name="expCovDZ", 	expression= rbind( cbind(A+C+E, 0.5%x%A+C), cbind(0.5%x%A+C, A+C+E))),
+                             mxAlgebra(name="corrP",		expression= cov2cor(A+C+E)),
+                             mxAlgebra(name="corrA", 		expression= cov2cor(A)),
+                             mxAlgebra(name="corrE", 		expression= cov2cor(E)),
+                             # Standardization - constrain variance of CP = 1
+                             mxMatrix(name="unitM",type="Unit", nrow=2, ncol=1),
+                             mxConstraint(name="ConVar",expression=diag2vec(psi_a+psi_c+psi_e)==unitM),  
+                             mxCI(c("ia11","ia21","ia22","ic11","ic21","ic22","ie11","ie21","ie22",
+                                    "f11","f21", "f31","f42", "f52","f62")),
+                             mxAlgebra(name="VC",expression=cbind(A,C,E,A/(A+C+E),C/(A+C+E),E/(A+C+E)), dimnames=list(rep('VC',nv),rep(c('A','C','E','SA','SC','SE'),each=nv)))), 
+                     # Multiple groups
+                     mxModel("MZ", mxData(	mzdata, type ="raw"), mxExpectationNormal(	covariance="top.expCovMZ", means="top.expMean", dimnames=selVars, thresholds="top.th", threshnames=varsO), mxFitFunctionML()),   
+                     mxModel("DZ", mxData( dzdata, type ="raw"), mxExpectationNormal(	covariance="top.expCovDZ", means="top.expMean", dimnames=selVars, thresholds="top.th", threshnames=varsO), mxFitFunctionML()),   
+                     mxFitFunctionMultigroup(c("MZ","DZ")))
+
+omxGetParameters(cp_2F_RATE)
+#mxCheckIdentification(cp_2F_PBA)
+CP2factor_uls 				<- mxAutoStart(cp_2F_RATE)
+summary(CP2factor_uls_fit 	<- mxRun(CP2factor_uls,intervals=F))   
+options(max.print = 4000)
+summary(CP2factor_uls_fit,verbose = T)
+summary( CP2factor_RATE_fit 		<- mxTryHard(CP2factor_uls_fit,  extraTries=1, greenOK=FALSE,checkHess=FALSE,fit2beat=Inf,intervals=F) )
+summary( CP2factor_RATE_fit )  
+CP2factor_RATE_fitci<-summary(omxRunCI(CP2factor_RATE_fit, optimizer = "SLSQP"),verbose=T)
+CP2factor_RATE_fitci
+
+WORRY_OM_FIT<-CP2factor_RATE_fit
+WORRY_OM_FITCI<-CP2factor_RATE_fitci
+
+save(WORRY_OM_FIT, file = "WORRY_OM_FIT.rda")
+save(WORRY_OM_FITCI, file = "WORRY_OM_FITCI.rda")
+
+
+
+
+# Autoregression - PBA at ges 51-55, 56-60, 61-65 & 66+
+
+selVars <- c("WORRY_V1C_T1","WORRY_V2C_T1","WORRY_V3C_T1","AGE_V1_T1","AGE_V2_T1","AGE_V3_T1","DEP_V1_T1","DEP_V2_T1","DEP_V3_T1",
+             "MEMORY_V1_T1","MEMORY_V2_T1","MEMORY_V3_T1",
+             "WORRY_V1C_T2","WORRY_V2C_T2","WORRY_V3C_T2","AGE_V1_T2","AGE_V2_T2","AGE_V3_T2","DEP_V1_T2","DEP_V2_T2","DEP_V3_T2",
+             "MEMORY_V1_T2","MEMORY_V2_T2","MEMORY_V3_T2")
+varsO		<- c("WORRY_V1C_T1", "WORRY_V2C_T1", "WORRY_V3C_T1",
+                        "WORRY_V1C_T2", "WORRY_V2C_T2", "WORRY_V3C_T2")
+mzdata		= subset(newtwins, ZYG2019==1,selVars) 
+dzdata		= subset(newtwins, ZYG2019==2,selVars) 
+mzdata<-  na.omit(mzdata)
+dzdata<-  na.omit(dzdata)
+cov(mzdata[selVars],use="complete")
+cov(dzdata[selVars],use="complete")
+
+describe(mzdata[selVars])
+describe(dzdata[selVars])
+
+# mxOption(NULL,"mvnRelEps",0.0045)
+nv     	= length(selVars)/2     
+ntv    	= nv*2    
+nVariables	= 3
+nFactors	= 3
+psi_lab_a	= c("ia11","ia22","ia33")
+psi_lab_c	= c("ic11","ic22","ic33")
+psi_lab_e	= c("ie11","ie22","ie33")
+res_lab_a	= c("res_a1","res_a2","res_a3")
+res_lab_c	= c("res_c1","res_c2","res_c3")
+res_lab_e	= "res_e"
+b_labC 		= matrix(c(NA, NA, NA, 
+                    "bC", NA, NA,  
+                    NA,"bC", NA),nVariables,byrow = TRUE)
+b_labE 		= matrix(c(NA, NA, NA, 
+                    "bE", NA, NA,  
+                    NA,"bE", NA),nVariables,byrow = TRUE)
+betaF   	= matrix(c(F,F,F, 
+                    T,F,F,  
+                    F,T,F),3,byrow = TRUE)
+beta_lab 	= matrix(c(NA, NA, NA, 
+                     "b", NA, NA,  
+                     NA,"b", NA),3,byrow = TRUE)
+beta_val 	= 0.9
+
+loadS 		= diag(nFactors)
+loadF 		= F
+
+# round(t(diag2vec(auto_PBA_ACE_fit$top$matrices$psi_a$values)),1)
+psi_a_val	= c( 21,3,5)
+psi_c_val	= c( -1,-1,-1)
+psi_e_val	= c( 3,4,-1)
+
+# round(t(diag2vec(auto_PBA_ACE_fit$top$matrices$epsilon_a$values)),1)
+# epsi_a_val	=c(-0.7,-0.2,-0.2)
+# epsi_c_val	=c(0.2,-0.1,0.1)
+epsi_e_val	= 0.8
+
+auto_PBA = mxModel("ACE",
+                   mxModel("top",
+                           # Means & definition variables
+                           mxMatrix( name="Mean", 		type="Full", nrow=3, ncol=1, free = T, labels = c("m1","m2","m3"), values=0, lbound = -5, ubound = 5 ),
+                           mxMatrix( name="Bage", 		type="Full", nrow=3, ncol=1, free=T, labels=c("Bage1","Bage2","Bage3"),    values = 1.1, lbound = -25,ubound = 25),
+                           mxMatrix( name="Bdep", 		type="Full", nrow=3, ncol=1, free=T, labels=c("Bdep1","Bdep2","dep3"),    values = 1.1, lbound = -25,ubound = 25),
+                           mxMatrix( name="Bmem", 		type="Full", nrow=3, ncol=1, free=T, labels=c("Bmem1","Bmem2","Bmem3"),    values = 1.1, lbound = -25,ubound = 25),
+                           
+                            #Thresholds
+                           mxMatrix( name="th",			type="Full",  nrow=1, ncol=6, free=T, values = 1, labels=varsO), 	# Threshold matrix for one twin
+                           # Beta - causal pathways
+                           mxMatrix(name="beta", 			type="Full", nrow = nFactors, ncol = nFactors, free=betaF, labels=beta_lab, values=0.8, lbound = -10, ubound = 10), # , lbound = 0.0001, ubound = 10
+                           mxMatrix(name="I",				type="Iden", nrow = nFactors, ncol = nFactors),
+                           mxMatrix(name="lamba",			type="Full", nrow = 3, ncol = 3, free = F, values = diag(3)),
+                           # Psi - innovations
+                           mxMatrix(name="psi_a", 		type="Diag", nrow = nFactors, ncol = nFactors, free = T, labels = psi_lab_a, 	lbound = -25, ubound = 25), # values = psi_a_val, 
+                           mxMatrix(name="psi_c", 		type="Diag", nrow = nFactors, ncol = nFactors, free = T, labels = psi_lab_c, 	lbound = -25, ubound = 25), # values = psi_c_val, 
+                           mxMatrix(name="psi_e", 		type="Diag", nrow = nFactors, ncol = nFactors, free = T, labels = psi_lab_e, 	lbound = -25, ubound = 25), # values = psi_e_val, 
+                           
+                           # Epsilon - errors
+                           mxMatrix(name="epsilon_a", 	type="Diag", nrow = nVariables, ncol = nVariables, free = T, labels = res_lab_a, lbound = -25, ubound = 25), # values = 0.1, 
+                           mxMatrix(name="epsilon_c", 	type="Diag", nrow = nVariables, ncol = nVariables, free = T, labels = res_lab_c, lbound = -25, ubound = 25), # values = 0.1, 
+                           mxMatrix(name="epsilon_e", 	type="Diag", nrow = nVariables, ncol = nVariables, free = T, labels = res_lab_e, lbound = -25, ubound = 25), # values = 0.4, 
+                           mxAlgebra(name="A", 			expression= (lamba %&% (solve(I-beta) %&% psi_a%*%t(psi_a))) + (epsilon_a%*%t(epsilon_a))),
+                           mxAlgebra(name="C", 			expression= (lamba %&% (solve(I-beta) %&% psi_c%*%t(psi_c))) + (epsilon_c%*%t(epsilon_c))),
+                           mxAlgebra(name="E", 			expression= (lamba %&% (solve(I-beta) %&% psi_e%*%t(psi_e))) + (epsilon_e%*%t(epsilon_e))),  
+                           mxAlgebra(name="expCovMZ", 	expression= rbind( cbind(A+C+E, A+C), cbind(A+C, A+C+E))),
+                           mxAlgebra(name="expCovDZ", 	expression= rbind( cbind(A+C+E, 0.5%x%A+C), cbind(0.5%x%A+C, A+C+E))),
+                           mxAlgebra(name="corrP",		expression= cov2cor(A+C+E)),
+                           mxAlgebra(name="corrA", 		expression= cov2cor(A)),
+                           mxAlgebra(name="corrC", 		expression= cov2cor(C)),
+                           # Standardization
+                           # mxMatrix(name="unitM",type="Unit", nrow=nv, ncol=1),
+                           # mxConstraint(name="ConVar",expression=diag2vec(A+C+E)==unitM), 
+                           mxAlgebra(name="VC",expression=cbind(A,C,E,A/(A+C+E),C/(A+C+E),E/(A+C+E)), dimnames=list(rep('VC',nv),rep(c('A','C','E','SA','SC','SE'),each=nVariables)))), 
+                           mxCI(c("corrMZ[2,1]","corrDZ[2,1]")),    
+                  
+                   # Means & definition variables"MEMORY_V1_T1","MEMORY_V2_T1","MEMORY_V3_T1"
+                   mxModel("MZ", mxData(			mzdata, type ="raw"),
+                           mxMatrix(	name="AgeDef_T1", 	type="Full", nrow=3, ncol=1, free=F, labels=c("data.AGE_V1_T1","data.AGE_V2_T1","data.AGE_V3_T1")),
+                           mxMatrix(	name="AgeDef_T2", 	type="Full", nrow=3, ncol=1, free=F, labels=c("data.AGE_V1_T2","data.AGE_V2_T2","data.AGE_V3_T2")),
+                           mxMatrix(	name="Dep_T1", 	type="Full", nrow=3, ncol=1, free=F, labels=c("data.DEP_V1_T1","data.DEP_V2_T1","data.DEP_V3_T1")),
+                           mxMatrix(	name="Dep_T2", 	type="Full", nrow=3, ncol=1, free=F, labels=c("data.DEP_V1_T2","data.DEP_V2_T2","data.DEP_V3_T2")),
+                           mxMatrix(	name="MEMORY_T1", 	type="Full", nrow=3, ncol=1, free=F, labels=c("data.MEMORY_V1_T1","data.MEMORY_V2_T1","data.MEMORY_V3_T1")),
+                           mxMatrix(	name="MEMORY_T2", 	type="Full", nrow=3, ncol=1, free=F, labels=c("data.MEMORY_V1_T2","data.MEMORY_V2_T2","data.MEMORY_V3_T2")),
+                           
+                            mxAlgebra( name="expMean", 	expression= cbind(t(top.lamba %*% (solve(top.I-top.beta) %*% (top.Mean + top.Bage*AgeDef_T1 + top.Bdep*Dep_T1 + top.Bmem*MEMORY_T1))), 
+                                                                         t(top.lamba %*% (solve(top.I-top.beta) %*% (top.Mean + top.Bage*AgeDef_T2 + top.Bdep*Dep_T2 + top.Bmem*MEMORY_T2))))), 
+                           mxExpectationNormal("top.expCovMZ", means="expMean", dimnames=varsO, thresholds="top.th", threshnames=varsO), mxFitFunctionML() ),
+                   mxModel("DZ", mxData(			dzdata, type ="raw"),
+                           mxMatrix(	name="AgeDef_T1", 	type="Full", nrow=3, ncol=1, free=F, labels=c("data.AGE_V1_T1","data.AGE_V2_T1","data.AGE_V3_T1")),
+                           mxMatrix(	name="AgeDef_T2", 	type="Full", nrow=3, ncol=1, free=F, labels=c("data.AGE_V1_T2","data.AGE_V2_T2","data.AGE_V3_T2")),
+                           mxMatrix(	name="Dep_T1", 	type="Full", nrow=3, ncol=1, free=F, labels=c("data.DEP_V1_T1","data.DEP_V2_T1","data.DEP_V3_T1")),
+                           mxMatrix(	name="Dep_T2", 	type="Full", nrow=3, ncol=1, free=F, labels=c("data.DEP_V1_T2","data.DEP_V2_T2","data.DEP_V3_T2")),
+                           mxMatrix(	name="MEMORY_T1", 	type="Full", nrow=3, ncol=1, free=F, labels=c("data.MEMORY_V1_T1","data.MEMORY_V2_T1","data.MEMORY_V3_T1")),
+                           mxMatrix(	name="MEMORY_T2", 	type="Full", nrow=3, ncol=1, free=F, labels=c("data.MEMORY_V1_T2","data.MEMORY_V2_T2","data.MEMORY_V3_T2")),
+                           mxAlgebra( name="expMean", 	expression= cbind(t(top.lamba %*% (solve(top.I-top.beta) %*% (top.Mean + top.Bage*AgeDef_T1 + top.Bdep*Dep_T1 + top.Bmem*MEMORY_T1))), 
+                                                                         t(top.lamba %*% (solve(top.I-top.beta) %*% (top.Mean + top.Bage*AgeDef_T2 + top.Bdep*Dep_T2 + top.Bmem*MEMORY_T2))))), 
+                           mxExpectationNormal("top.expCovDZ", means="expMean", dimnames=varsO, thresholds="top.th", threshnames=varsO), mxFitFunctionML() ),
+                   mxFitFunctionMultigroup(c("MZ","DZ"))
+)
+
+omxGetParameters(auto_PBA)
+#mxCheckIdentification( auto_PBA )
+
+ auto_uls 				<- mxAutoStart(auto_PBA)
+ summary(uls_fit 	<- mxTryHardOrdinal(auto_PBA))
+
+# ACE 
+summary( auto_PBA_fit 		<- mxTryHard( auto_uls,  extraTries=35, greenOK=FALSE,checkHess=FALSE,intervals=F) )
+summary( auto_PBA_fit )  
+
+auto_PBA_fit$top$algebras$VC$result
+
+#summary(omxRunCI( auto_PBA_fit,optimizer = "SLSQP"))$CI	 
+#mxCheckIdentification( auto_PBA_fit )
+
+# AE model
+auto_PBA_AE 					<- mxModel( auto_PBA_fit,name="AE")
+auto_PBA_AE 					<- omxSetParameters( auto_PBA_AE, labels=psi_lab_c, free=F, values=0)
+auto_PBA_AE 					<- omxAssignFirstParameters( auto_PBA_AE )
+summary( auto_PBA_AE_fit 		<- mxTryHard( 		 auto_PBA_AE, extraTries=25, greenOK=TRUE,checkHess=FALSE,intervals=F))
+summary( auto_PBA_AE_fit )
+summary(omxRunCI( auto_PBA_AE_fit,optimizer = "SLSQP"))$CI	
+# Common Pathway 1 factor - PBA at ges 51-55, 56-60, 61-65 & 66+
+
+selVars    = c("SM_V1_T1", "SM_V2_T1", "SM_V3_T1",
+                "SM_V1_T2", "SM_V2_T2", "SM_V3_T2")
+
+mzdata		<- subset(newtwins, ZYG2019==1, selVars); # dim(mzdata) # 475  10
+dzdata		<- subset(newtwins, ZYG2019==2, selVars); # dim(dzdata) # 335  10
+
+nv     	= length(selVars)/2     
+ntv    	= nv*2    
+
+
+nVariables	= 3
+nFactors	= 1
+#thVals 	= 0.5
+#nth 		= 1
+#svLTh  	= 1.1    # start value for first threshold
+#svITh  	= 1.0    # start value for increments
+#svTh   	= matrix(rep(c(svLTh,(rep(svITh,nth-1)))),nrow=nth,ncol=nv)     # start value for thresholds
+#round(auto_ACE_fit$matrices$thresh$values,2)
+#Th_val		= c(1.2,1.1,1.1)
+#Th_lb   	= matrix(rep(c(-3,(rep(0.001,nth-1))),nv),nrow=nth,ncol=nv)     # lower bounds for thresholds
+#Th_lab  	= c(paste("th",1:nth,"v1",sep=""),paste("th",1:nth,"v2",sep=""),paste("th",1:nth,"v3",sep=""))
+psi_lab_a	= c("ia11")
+psi_lab_c	= c("ic11")
+psi_lab_e	= c("ie11")
+#round(t(diag2vec(auto_ACE_fit$matrices$psi_c$values)),2)
+psi_a_val	= 0.7
+psi_c_val	= 0.2
+psi_e_val	= 0.2
+res_lab_a	= c("res_a1","res_a2","res_a3")
+res_lab_c	= c("res_c1","res_c2","res_c3")
+res_lab_e	= c("res_e1","res_e2","res_e3")
+loadS 		= 0.8
+loadF 		= T
+lamba_lab	= c("f11","f21","f31")
+
+cp_1F_PBA = mxModel("ACE",
+                    mxModel("top",
+                            mxMatrix(name="Mean", 		type="Full", nrow=1, ncol=nv, free = T, labels = c("m1","m2","m3"), lbound = -15, ubound = 5 ),
+                            #Thresholds
+                            mxAlgebra(name="expMean", 	expression= cbind(Mean, Mean)),  
+                            mxMatrix(name="psi_a", 		type="Symm", nrow = nFactors, ncol = nFactors, free = T, labels = psi_lab_a, values = 0, lbound = -40, ubound = 40), #  
+                            mxMatrix(name="psi_c", 		type="Symm", nrow = nFactors, ncol = nFactors, free = T, labels = psi_lab_c, values = 0, lbound = -40, ubound = 40), #  
+                            mxMatrix(name="psi_e", 		type="Symm", nrow = nFactors, ncol = nFactors, free = T, labels = psi_lab_e, values = 1, lbound = -40, ubound = 40), #  
+                            mxMatrix(name="lamba",		type="Full", nrow = nv, ncol = nFactors, free = T, labels= lamba_lab, values = 1, lbound = 0, ubound = 20), # 
+                            mxMatrix(name="epsilon_a", 	type="Diag", nrow = nv, ncol = nv, free = T, labels = res_lab_a, values =   0, lbound = -40, ubound = 40), #  
+                            mxMatrix(name="epsilon_c", 	type="Diag", nrow = nv, ncol = nv, free = T, labels = res_lab_c, values =   0, lbound = -40, ubound = 40), #  
+                            mxMatrix(name="epsilon_e", 	type="Diag", nrow = nv, ncol = nv, free = T, labels = res_lab_e, values = 0.1, lbound = -40, ubound = 40), #  
+                            mxAlgebra(name="A", 			expression= lamba %&% psi_a + epsilon_a),
+                            mxAlgebra(name="C", 			expression= lamba %&% psi_c + epsilon_c),
+                            mxAlgebra(name="E", 			expression= lamba %&% psi_e + epsilon_e),  
+                            mxAlgebra(name="expCovMZ", 	expression= rbind( cbind(A+C+E, A+C), cbind(A+C, A+C+E))),
+                            mxAlgebra(name="expCovDZ", 	expression= rbind( cbind(A+C+E, 0.5%x%A+C), cbind(0.5%x%A+C, A+C+E))),
+                            mxAlgebra(name="corrP",		expression= cov2cor(A+C+E)),
+                            mxAlgebra(name="corrA", 		expression= cov2cor(A)),
+                            mxAlgebra(name="corrE", 		expression= cov2cor(E)),
+                            # Standardization - constrain variance of CP = 1
+                            mxMatrix(name="unitM",type="Unit", nrow=nFactors, ncol=nFactors),
+                            mxConstraint(name="ConVar",expression=diag2vec(psi_a+psi_c+psi_e)==unitM),  
+                            mxCI(c("psi_a","psi_e", "ia11","ie11","f11","f21","f31","f41")), #"ia11","ie11", "res_a1","res_a2","res_a3","res_a4","res_e1","res_e2","res_e3","res_e4", "f11","f21","f31","f41",
+                           # "VC[1,13]","VC[2,14]","VC[3,15]","VC[4,16]", "VC[1,21]","VC[2,22]","VC[3,23]","VC[4,24]","corrA[2,1]"
+                            mxAlgebra(name="VC",expression=cbind(A,C,E,A/(A+C+E),C/(A+C+E),E/(A+C+E)), dimnames=list(rep('VC',nv),rep(c('A','C','E','SA','SC','SE'),each=nv)))), 
+                    # Multiple groups
+                    mxModel("MZ", mxData(	mzdata, type ="raw"), mxExpectationNormal(	covariance="top.expCovMZ", means="top.expMean", dimnames=selVars), mxFitFunctionML()),   
+                    mxModel("DZ", mxData( dzdata, type ="raw"), mxExpectationNormal(	covariance="top.expCovDZ", means="top.expMean", dimnames=selVars), mxFitFunctionML()),   
+                    mxFitFunctionMultigroup(c("MZ","DZ")))
+
+omxGetParameters(cp_1F_PBA)
+#mxCheckIdentification(cp_1F_PBA)
+
+# ACE 
+summary( cp_1F_PBA_fit 		<- mxTryHard(cp_1F_PBA,  extraTries=25, greenOK=FALSE,checkHess=FALSE,fit2beat=Inf,intervals=F) )
+summary( cp_1F_PBA_fit )  
+cp_1F_PBA_fitci<-summary(omxRunCI(cp_1F_PBA_fit, optimizer = "SLSQP"),verbose=T)
+cp_1F_PBA_fit$top$algebras$VC$result
+cp_1F_PBA_AE_fit$top$algebras$VC$result
+summary(cp_1F_PBA_AE_fit)
+cp_1F_PBA_AE_fitci<-summary(omxRunCI(cp_1F_PBA_AE_fit, optimizer = "SLSQP"),verbose=T)
+
+# mxCheckIdentification( cp_1F_PBA_fit )
+
+# AE model
+cp_1F_PBA_AE 					<- mxModel( cp_1F_PBA_fit,name="AE")
+cp_1F_PBA_AE 					<- omxSetParameters( cp_1F_PBA_AE, label=psi_lab_c,free=F,values= 0)
+cp_1F_PBA_AE 					<- omxSetParameters( cp_1F_PBA_AE, label=res_lab_c,free=F,values= 0) 
+cp_1F_PBA_AE 					<- omxSetParameters( cp_1F_PBA_AE, label=c("f11","f21","f31","f41"),	free=T,values=5, ubound=10)  
+cp_1F_PBA_AE	 				<- omxSetParameters( cp_1F_PBA_AE, label=c(res_lab_a,res_lab_e),		free=T,values=0.5, ubound=20)    
+cp_1F_PBA_AE 					<- omxSetParameters( cp_1F_PBA_AE, label="ia11",free=T,values=20,ubound=40) 
+summary( cp_1F_PBA_AE_fit		<- mxTryHard( 		 cp_1F_PBA_AE, extraTries=50, greenOK=TRUE,checkHess=FALSE,intervals=F))
+summary( cp_1F_PBA_AE_fit ) 
+
+tmp <- summary(omxRunCI(cp_1F_PBA_AE_fit,optimizer = "SLSQP"),verbose=T)$CI	
+round(tmp[,c(2,1,3)],2)
+round(tmp,2)
+
+#              estimate lbound uboundd
+# ia11             0.73 (0.64-0.81)
+# ie11             0.27 (0.19-0.36)
+# res_a1           5.50 (1.36-10.40)
+# res_a2           7.48 (5.00-10.26)
+# res_a3          -1.55 (-4.22-1.04)
+# res_a4           5.24 (2.82-7.94)
+# res_e1           8.39 (5.53-12.59)
+# res_e2           2.93 (1.57-4.67)
+# res_e3           5.51 (3.50-7.98)
+# res_e4           4.22 (2.52-6.44)
+# f11              4.43 (3.75-5.09)
+# f21              4.30 (3.78-4.83)
+# f31              5.20 (4.73-5.69)
+# f41              4.24 (3.73-4.76)
+# top.VC[1,13]     0.59 (0.47-0.69)
+# top.VC[2,14]     0.73 (0.65-0.79)
+# top.VC[3,15]     0.59 (0.48-0.68)
+# top.VC[4,16]     0.67 (0.58-0.74)
+# top.VC[1,21]     0.41 (0.31-0.53)
+# top.VC[2,22]     0.27 (0.21-0.35)
+# top.VC[3,23]     0.41 (0.32-0.52)
+# top.VC[4,24]     0.33 (0.26-0.42)
+# top.corrA[2,1]   0.68 (0.56-0.80)
+
+tmp2=cbind(diag2vec(cp_1F_PBA_AE_fit$top$algebras$VC$result[,13:16]),
+           round(tmp[15:18,c(1,3)],2),
+           diag2vec(cp_1F_PBA_AE_fit$top$algebras$VC$result[,21:24]),
+           round(tmp[19:22,c(1,3)],2)			   
+)
+rownames(tmp2) = c("PBA 51-55","PBA 56-60","PBA 61-65","PBA_66+")
+colnames(tmp2) = c("A","low","hi","E","low","hi")	
+round(tmp2,2)
+
+#              A  low   hi    E  low   hi
+# PBA 51-55 0.59 (0.47-0.69) 0.41 (0.31-0.53)
+# PBA 56-60 0.73 (0.65-0.79) 0.27 (0.21-0.35)
+# PBA 61-65 0.59 (0.48-0.68) 0.41 (0.32-0.52)
+# PBA_66+   0.67 (0.58-0.74) 0.33 (0.26-0.42)
+
+tmp <- cp_1F_PBA_AE_fit$submodels$top$algebras$corrA$result
+rownames(tmp) = c("A1. PBA 51-55","A2. PBA 56-60","A3. PBA 61-65","A4. PBA_66+")
+colnames(tmp) = c("A1.","A2.","A3.","A4.")	
+round(tmp,2)
+
+#                A1.  A2.  A3.  A4.
+# A1. PBA 51-55 1.00 0.68 0.89 0.72
+# A2. PBA 56-60 0.68 1.00 0.84 0.68
+# A3. PBA 61-65 0.89 0.84 1.00 0.88
+# A4. PBA_66+   0.72 0.68 0.88 1.00
+
+tmp <- cp_1F_PBA_AE_fit$submodels$top$algebras$corrE$result
+rownames(tmp) = c("E1. PBA 51-55","E2. PBA 56-60","E3. PBA 61-65","E4. PBA_66+")
+colnames(tmp) = c("E1.","E2.","E3.","E4.")	
+round(tmp,2)
+
+#                E1.  E2.  E3.  E4.
+# E1. PBA 51-55 1.00 0.49 0.47 0.45
+# E2. PBA 56-60 0.49 1.00 0.60 0.58
+# E3. PBA 61-65 0.47 0.60 1.00 0.55
+# E4. PBA_66+   0.45 0.58 0.55 1.00
+
+# Table 3. Additive genetic (below diagonal) & non-shared environmental correlations between the predicted brain ages (PBA) based on the best fitting AE single common pathway model.				
+#                1.   2.   3.   4.
+# 1. PBA 51-55 1.00 0.49 0.47 0.45
+# 2. PBA 56-60 0.68 1.00 0.60 0.58
+# 3. PBA 61-65 0.89 0.84 1.00 0.55
+# 4. PBA_66+   0.72 0.68 0.88 1.00	
+
+# CE model
+cp_1F_PBA_CE 					<- mxModel( cp_1F_PBA_fit,name="CE")
+cp_1F_PBA_CE 					<- omxSetParameters( cp_1F_PBA_CE, label=psi_lab_a,free=F,values= 0)
+cp_1F_PBA_CE 					<- omxSetParameters( cp_1F_PBA_CE, label=res_lab_a,free=F,values= 0) 
+cp_1F_PBA_CE 					<- omxSetParameters( cp_1F_PBA_CE, label=c("f11","f21","f31","f41"), free=T,values=5, ubound=10)  
+cp_1F_PBA_CE	 				<- omxSetParameters( cp_1F_PBA_CE, label=c(res_lab_c,res_lab_e), free=T,values=0.5, ubound=20)    
+cp_1F_PBA_CE 					<- omxSetParameters( cp_1F_PBA_CE, label="ie11",free=T,values=20,ubound=40) 
+summary( cp_1F_PBA_CE_fit		<- mxTryHard( 		 cp_1F_PBA_CE, extraTries=25, greenOK=TRUE,checkHess=FALSE,intervals=F))
+summary( cp_1F_PBA_CE_fit ) 
+
+# E model
+cp_1F_PBA_E 					<- mxModel( cp_1F_PBA_fit,name="E")
+cp_1F_PBA_E 					<- omxSetParameters( cp_1F_PBA_E, label=psi_lab_a,free=F,values= 0)
+cp_1F_PBA_E 					<- omxSetParameters( cp_1F_PBA_E, label=psi_lab_c,free=F,values= 0) 
+cp_1F_PBA_E 					<- omxSetParameters( cp_1F_PBA_E, label=res_lab_a,free=F,values= 0) 
+cp_1F_PBA_E 					<- omxSetParameters( cp_1F_PBA_E, label=res_lab_c,free=F,values= 0)  
+cp_1F_PBA_E 					<- omxSetParameters( cp_1F_PBA_E, label=c("f11","f21","f31","f41"),	free=T,values=5, ubound=10)  
+cp_1F_PBA_E 					<- omxSetParameters( cp_1F_PBA_E, label="ie11",						free=T,values=20,ubound=40) 
+summary( cp_1F_PBA_E_fit		<- mxTryHard( 		 cp_1F_PBA_E, extraTries=25, greenOK=TRUE,checkHess=FALSE,intervals=F))
+summary( cp_1F_PBA_E_fit ) 
+
+# Compare models
+subs								<- c( cp_1F_PBA_fit,auto_PBA_fit, ip_PBA_fit)
+comps							<- mxCompare(auto_PBA_fit, subs); comps 
+
+# Table S5. Predicted brain age multivariate model fitting results & comparisons between the best fitting ACE (single) common pathway model and the AE, CE & E sub-models.							
+#   base comparison ep minus2LL   df      AIC     diffLL diffdf            p
+# 1  ACE       <NA> 23 8207.877 1413 5381.877         NA     NA           NA
+# 2  ACE         AE 18 8212.835 1418 5376.835   4.957807      5 4.210512e-01
+# 3  ACE         CE 18 8250.066 1418 5414.066  42.188580      5 5.394845e-08
+# 4  ACE          E 13 8404.952 1423 5558.952 197.074578     10 6.573513e-37
+
+auto_PBA_fit$top$algebras$VC$result
+# #
+auto_PBA_fitci<-summary(omxRunCI(auto_PBA_fit, optimizer = "SLSQP"),verbose=T)
+
+
+
+
+
+
+
+# Independent Pathways - PBA at ages 51-55, 56-60, 61-65 & 66+
+
+selVars    = c("SM_V38_T1", "SM_V1_T1", "SM_V2_T1", "SM_V3_T1",
+               "SM_V38_T2", "SM_V1_T2", "SM_V2_T2", "SM_V3_T2")
+
+mzdata		<- subset(df2, zyg2019==1, selVars); # dim(mzdata) # 475  10
+dzdata		<- subset(df2, zyg2019==2, selVars); # dim(dzdata) # 335  10
+
+nv     	= length(selVars)/2     
+ntv    	= nv*2    
+nVariables	= 4
+nFactors	= 1
+#thVals 	= 0.5
+#nth 		= 1
+#svLTh  	= 1.1    # start value for first threshold
+#svITh  	= 1.0    # start value for increments
+#svTh   	= matrix(rep(c(svLTh,(rep(svITh,nth-1)))),nrow=nth,ncol=nv)     # start value for thresholds
+#round(auto_ACE_fit$matrices$thresh$values,2)
+#Th_val		= c(1.2,1.1,1.1)
+#Th_lb   	= matrix(rep(c(-3,(rep(0.001,nth-1))),nv),nrow=nth,ncol=nv)     # lower bounds for thresholds
+#Th_lab  	= c(paste("th",1:nth,"v1",sep=""),paste("th",1:nth,"v2",sep=""),paste("th",1:nth,"v3",sep=""))
+psi_lab_a	= c("ia11")
+psi_lab_c	= c("ic11")
+psi_lab_e	= c("ie11")
+#round(t(diag2vec(auto_ACE_fit$matrices$psi_c$values)),2)
+psi_a_val	= 0.7
+psi_c_val	= 0.2
+psi_e_val	= 0.2
+res_lab_a	= c("res_a1","res_a2","res_a3","res_a4")
+res_lab_c	= c("res_c1","res_c2","res_c3","res_c4")
+res_lab_e	= c("res_e1","res_e2","res_e3","res_e4")
+loadS 		= 0.8
+loadF 		= T
+lamba_lab_a	= c("f11_a","f21_a","f31_a","f41_a")
+lamba_lab_c	= c("f11_c","f21_c","f31_c","f41_c") 
+lamba_lab_e	= c("f11_e","f21_e","f31_e","f41_e") 
+
+FT   	= matrix(c(T,F,F,F, 
+                 T,F,F,F,  
+                 T,F,F,F,
+                 T,F,F,F),nv,byrow = TRUE)
+
+lamba_lab_a <- matrix(c("f11_a",NA,NA,NA,
+                        "f21_a",NA,NA,NA,
+                        "f31_a",NA,NA,NA,
+                        "f41_a",NA,NA,NA
+                         ),nv,byrow = TRUE)
+
+lamba_lab_c <- matrix(c("f11_c",NA,NA,NA,
+                        "f21_c",NA,NA,NA,
+                        "f31_c",NA,NA,NA,
+                        "f41_c",NA,NA,NA),nv,byrow = TRUE)
+
+
+lamba_lab_e <- matrix(c("f11_e",NA,NA,NA,
+                        "f21_e",NA,NA,NA,
+                        "f31_e",NA,NA,NA,
+                        "f41_e",NA,NA,NA),nv,byrow = TRUE)
+
+
+
+ip_PBA = mxModel("ACE",
+                 mxModel("top",
+                         mxMatrix(name="Mean", 		type="Full", nrow=1, ncol=nv, free = T, labels = c("m1","m2","m3","m4"), lbound = -15, ubound = 5 ),
+                         mxAlgebra(name="expMean", 	expression= cbind(Mean, Mean)),  
+                         
+                         mxMatrix(name="lamba_a",		type="Lower", nrow = nv, ncol = nv, free = FT, labels= lamba_lab_a, values = 1, lbound = -20, ubound = 20), #   
+                         mxMatrix(name="lamba_c",		type="Lower", nrow = nv, ncol = nv, free = FT, labels= lamba_lab_c, values = 1, lbound = -20, ubound = 20), #   
+                         mxMatrix(name="lamba_e",		type="Lower", nrow = nv, ncol = nv, free = FT, labels= lamba_lab_e, values = 1, lbound = -20, ubound = 20), # 
+                         
+                         mxMatrix(name="epsilon_a", 	type="Diag", nrow = nv, ncol = nv, free = T, labels = res_lab_a, values =   0, lbound = -40, ubound = 40), #  
+                         mxMatrix(name="epsilon_c", 	type="Diag", nrow = nv, ncol = nv, free = T, labels = res_lab_c, values =   0, lbound = -40, ubound = 40), #  
+                         mxMatrix(name="epsilon_e", 	type="Diag", nrow = nv, ncol = nv, free = T, labels = res_lab_e, values = 0.1, lbound = -40, ubound = 40), #  
+                         
+                         mxAlgebra(name="A", 			expression= lamba_a %*% t(lamba_a) + epsilon_a %*% t(epsilon_a)),
+                         mxAlgebra(name="C", 			expression= lamba_c %*% t(lamba_c) + epsilon_c %*% t(epsilon_c)),
+                         mxAlgebra(name="E", 			expression= lamba_e %*% t(lamba_e) + epsilon_e %*% t(epsilon_e)),  
+                         mxAlgebra(name="expCovMZ", 	expression= rbind( cbind(A+C+E, A+C), cbind(A+C, A+C+E))),
+                         mxAlgebra(name="expCovDZ", 	expression= rbind( cbind(A+C+E, 0.5%x%A+C), cbind(0.5%x%A+C, A+C+E))),
+                         
+                         mxAlgebra(name="VC",expression=cbind(A,C,E,A/(A+C+E),C/(A+C+E),E/(A+C+E)), dimnames=list(rep('VC',nv),rep(c('A','C','E','SA','SC','SE'),each=nv)))), 
+                 
+                 mxModel("MZ", mxData(	MZdata, type ="raw"), mxExpectationNormal(	covariance="top.expCovMZ", means="top.expMean", dimnames=selVars), mxFitFunctionML()),   
+                 mxModel("DZ", mxData( DZdata, type ="raw"), mxExpectationNormal(	covariance="top.expCovDZ", means="top.expMean", dimnames=selVars), mxFitFunctionML()),   
+                 mxFitFunctionMultigroup(c("MZ","DZ")))
+
+omxGetParameters(ip_PBA)
+#mxCheckIdentification(ip_PBA)
+
+# ACE 
+summary( ip_PBA_fit 		<- mxTryHard(ip_PBA,  extraTries=25, greenOK=FALSE,checkHess=FALSE,fit2beat=Inf,intervals=F) )
+summary( ip_PBA_fit )  
+# mxCheckIdentification( ip_PBA_fit )
+
+# AE model
+ip_PBA_AE 					<- mxModel( ip_PBA_fit,name="AE")
+ip_PBA_AE 					<- omxSetParameters( ip_PBA_AE, label=c("f11_c","f21_c","f31_c","f41_c"),		free=F,values= 0)
+ip_PBA_AE 					<- omxSetParameters( ip_PBA_AE, label=c("res_c1","res_c2","res_c3","res_c4"),	free=F,values= 0) 
+summary( ip_PBA_AE_fit		<- mxTryHard( 		 ip_PBA_AE, extraTries=50, greenOK=TRUE,checkHess=FALSE,intervals=F))
+summary( ip_PBA_AE_fit ) 
+
+# CE model
+ip_PBA_CE 					<- mxModel( ip_PBA_fit,name="CE")
+ip_PBA_CE 					<- omxSetParameters( ip_PBA_CE, label=c("f11_a","f21_a","f31_a","f41_a"),		free=F,values= 0)
+ip_PBA_CE 					<- omxSetParameters( ip_PBA_CE, label=c("res_a1","res_a2","res_a3","res_a4"),	free=F,values= 0) 
+summary( ip_PBA_CE_fit		<- mxTryHard( 		 ip_PBA_CE, extraTries=25, greenOK=TRUE,checkHess=FALSE,intervals=F))
+summary( ip_PBA_CE_fit ) 
+
+# E model
+ip_PBA_E 					<- mxModel( ip_PBA_fit,name="E")
+ip_PBA_E 					<- omxSetParameters( ip_PBA_E, c("f11_c","f21_c","f31_c","f41_c"),		free=F,values= 0)
+ip_PBA_E 					<- omxSetParameters( ip_PBA_E, c("res_c1","res_c2","res_c3","res_c4"),	free=F,values= 0)
+ip_PBA_E 					<- omxSetParameters( ip_PBA_E, c("f11_a","f21_a","f31_a","f41_a"),		free=F,values= 0)
+ip_PBA_E 					<- omxSetParameters( ip_PBA_E, c("res_a1","res_a2","res_a3","res_a4"),	free=F,values= 0)
+summary( ip_PBA_E_fit		<- mxTryHard( 		 ip_PBA_E, extraTries=25, greenOK=TRUE,checkHess=FALSE,intervals=F))
+summary( ip_PBA_E_fit ) 
+
+
+
+# Compare models
+subs								<- c(auto_PBA_fit,ip_PBA_fit,cp_1F_PBA_fit)
+comps							<- mxCompare(uls_fit, subs); comps 
+
+#> comps
+#base comparison ep  minus2LL   df       AIC     diffLL diffdf  p
+#1  ACE       <NA> 24 4093.1857 3414 4141.1857         NA     NA NA
+#2  ACE        ACE 20 4090.4417 3418 4130.4417 -2.7439372      4  1
+#3  ACE        ACE 27 4087.4742 3411 4141.4742 -5.7114363     -3 NA
+#4  ACE        ACE 24 4085.4969 3415 4133.4969 -7.6887979      1  1
+
+
+
+
+
+# wtquant   <- quantile(ordData[,c('wt1','wt2')],(0:(nth+1))/(nth+1),na.rm=TRUE)
+# for (i in c('wt1','wt2')) { ordData[,i] <- cut(ordData[,i], breaks=wtquant, labels=c(0:nth)) }
+
+# Select Variables for Analysis
+# List all twin 1 variables, followed by all twin 2 variables. Don't mix. 
+selVars    = c("SM_V38_T1", "SM_V1_T1", "SM_V2_T1", "SM_V3_T1",
+               "SM_V38_T2", "SM_V1_T2", "SM_V2_T2", "SM_V3_T2")
+nv        	= 4                   		
+ntv       	= nv*2
+mzdata		= subset(newtwins, ZYG2019==1,selVars) 
+dzdata		= subset(newtwins, ZYG2019==2,selVars) 
+
+psych::describe(mzdata)
+psych::describe(dzdata)
+
+nv     	= length(selVars)/2     
+ntv    	= nv*2    
+thVals 	= 0.5
+aLabs  	= paste("a",rev(nv+1-sequence(1:nv)),rep(1:nv,nv:1),sep="")
+cLabs  	= paste("c",rev(nv+1-sequence(1:nv)),rep(1:nv,nv:1),sep="")
+eLabs  	= paste("e",rev(nv+1-sequence(1:nv)),rep(1:nv,nv:1),sep="") 
+
+
+aVals		= c(.60, .87,.86,.09,.37,.79); 	
+cVals	 	= c(.02,-.14,-.08,.46,-.13,-.36); 	valDiag(cVals,6)
+eVals   	= c(.40,.39,.44,.4,.4,.4);  	valDiag(eVals,6)
+
+lbTh   <- matrix(rep(c(-3,(rep(0.001,nth-1))),nvo),nrow=nth,ncol=nvo)   # lower bounds for thresholds
+ubTh   <- matrix(rep(c(5,(rep(3,nth-1))),nvo),nrow=nth,ncol=nvo)     	# lower bounds for thresholds
+labTh  <- c(paste("v2","t",1:nth,sep=""))
+
+umx::umx_set_optimizer(opt="SLSQP")
+mxOption(NULL,"mvnRelEps",0.0055)
+mxOption(NULL, 'Number of Threads', parallel::detectCores())
+
+bivariate = mxModel("ACE",
+                    mxModel("top",
+                            mxMatrix(	name="Means", 		type="Full", nrow=1, ncol=nv, free=c(T,T,T,T), labels=c("m1","m2", "m3","m4")), # Mean matrix for one twin. The 2nd variable is ordinal, mean of zero.
+                            mxAlgebra(name="expMean", 	cbind(Means,Means)), # Mean matrices for twin 1 and twin 2
+                            mxMatrix( name="inc",    		type="Lower", nrow=1, ncol=1, free=F, values=1),
+                            mxMatrix(	name="A",			type="Symm", nrow=nv, ncol=nv, free=T, labels=aLabs, lbound= -20, ubound= 20), 		# Constrains element [2,2] to 1
+                            mxMatrix(	name="C",			type="Symm", nrow=nv, ncol=nv, free=T, values = 0, labels=cLabs, lbound= -20, ubound=20), 		# Constrains element [2,2] to 1
+                            mxMatrix(	name="E",			type="Symm", nrow=nv, ncol=nv, free=T, labels=eLabs,  lbound= -20, ubound=20),
+                            mxAlgebra(name="expCovMZ",	expression= rbind( cbind(A+C+E, A+C  ), cbind(  A+C, A+C+E))),
+                            mxAlgebra(name="expCovDZ",	expression= rbind( cbind(A+C+E, 0.5%x%A+C), cbind( 0.5%x%A+C, A+C+E) )),
+                            mxAlgebra(	name="corrP",	expression=cov2cor(A+C+E)),
+                            mxAlgebra(	name="corrA",	expression=cov2cor(A)),
+                            mxAlgebra(	name="corrE",	expression=cov2cor(E)),
+                            mxCI(c("VC[1,13]","VC[1,14]","VC[1,15]","VC[1,16]",
+                                   "VC[2,13]","VC[2,14]","VC[2,15]","VC[2,16]",
+                                    "VC[3,13]","VC[3,14]","VC[3,15]","VC[3,16]",
+                                    "VC[4,13]","VC[4,14]","VC[4,15]","VC[4,16]"
+                            )), #VC[1,10]
+                            mxAlgebra(name="VC", expression=cbind(A,C,E,A/(A+C+E),C/(A+C+E),E/(A+C+E)), dimnames=list(rep('VC',nv),rep(c('A','C','E','SA','SC','SE'),each=nv)) ) ),
+                    
+                    mxModel("MZ", mxData(mzdata, type ="raw"), mxExpectationNormal("top.expCovMZ", means="top.expMean", dimnames=selVars), mxFitFunctionML() ),
+                    mxModel("DZ", mxData(dzdata, type ="raw"), mxExpectationNormal("top.expCovDZ", means="top.expMean", dimnames=selVars), mxFitFunctionML() ),
+                    mxFitFunctionMultigroup(c("MZ","DZ"))
+)
+omxGetParameters(bivariate)
+
+# mxCheckIdentification(multi_PBA)
+
+# Run unweighted least squares to find better start values
+uls <- mxAutoStart(bivariate)
+summary(uls_fit_emp 	<- mxTryHard(uls, intervals=F))
+summary(uls_fit,verbose = T)
+bivariate_fitci<-summary(omxRunCI(bivariate_fit, optimizer = "SLSQP"),verbose=T)
+uls_fit$top$algebras$VC$result
+uls_fitci<-summary(omxRunCI(uls_fit, optimizer = "SLSQP"),verbose=T)
+
+
+
+
+# Autoregression - PBA at ges 51-55, 56-60, 61-65 & 66+
+
+selVars    = c("SM_V38_T1", "SM_V1_T1", "SM_V2_T1", "SM_V3_T1",
+               "SM_V38_T2", "SM_V1_T2", "SM_V2_T2", "SM_V3_T2")
+nv        	= 4                   		
+ntv       	= nv*2
+mzdata		= subset(newtwins, ZYG2019==1,selVars) 
+dzdata		= subset(newtwins, ZYG2019==2,selVars) 
+
+cov(mzdata[selVars],use="complete")
+cov(dzdata[selVars],use="complete")
+
+describe(mzdata[selVars])
+describe(dzdata[selVars])
+
+# mxOption(NULL,"mvnRelEps",0.0045)
+nv     	= length(selVars)/2     
+ntv    	= nv*2    
+nVariables	= nv
+nFactors	= nv
+psi_lab_a	= c("ia11","ia22","ia33","ia44")
+psi_lab_c	= c("ic11","ic22","ic33","ic44")
+psi_lab_e	= c("ie11","ie22","ie33","ie44")
+res_lab_a	= c("res_a1","res_a2","res_a3","res_a4")
+res_lab_c	= c("res_c1","res_c2","res_c3","res_c4")
+res_lab_e	= "res_e"
+betaF   	= matrix(c(F,F,F,F, 
+                    T,F,F,F,  
+                    F,T,F,F,
+                    F,F,T,F),nv,byrow = TRUE)
+b_lab 		= matrix(c(NA, NA, NA, NA, 
+                   "b", NA, NA, NA,  
+                   NA,"b", NA, NA,
+                   NA, NA,"b", NA),nv,byrow = TRUE)
+b_labC 		= matrix(c(NA, NA, NA, NA, 
+                    "bC", NA, NA, NA,  
+                    NA,"bC", NA, NA,
+                    NA, NA,"bC", NA),nv,byrow = TRUE)
+b_labE 		= matrix(c(NA, NA, NA, NA, 
+                    "bE", NA, NA, NA,  
+                    NA,"bE", NA, NA,
+                    NA, NA,"bE", NA),nv,byrow = TRUE)
+
+loadS 		= diag(nFactors)
+loadF 		= F
+
+# round(t(diag2vec(auto_PBA_ACE_fit$top$matrices$psi_a$values)),1)
+psi_a_val	= c( 21,3,5,5)
+psi_c_val	= c( -1,-1,-1,-1)
+psi_e_val	= c( 3,4,-1,-1)
+
+# round(t(diag2vec(auto_PBA_ACE_fit$top$matrices$epsilon_a$values)),1)
+# epsi_a_val	=c(-0.7,-0.2,-0.2)
+# epsi_c_val	=c(0.2,-0.1,0.1)
+epsi_e_val	= 0.8
+
+auto_PBA = mxModel("ACE",
+                   mxModel("top",
+                           # Means & definition variables
+                           mxMatrix( name="Mean", 		type="Full", nrow=nv, ncol=1, free = T, labels = c("m1","m2","m3","m4"), values=0, lbound = -5, ubound = 5 ),
+                           mxAlgebra(name="expMean", 		expression= cbind(t(lamba %*% (solve(I-beta) %*% (Mean))), t(lamba %*% (solve(I-beta) %*% (Mean)))) ),
+                           #mxAlgebra(name="expMean", 		expression= cbind(Mean,Mean)), 
+                           # Variance-covariance
+                           # Psi - innovations
+                           mxMatrix(name="psi_a", 		type="Diag", nrow = nFactors, ncol = nFactors, free = T, labels = psi_lab_a, values = psi_a_val, lbound = -5,  ubound = 50 ), 
+                           mxMatrix(name="psi_c", 		type="Diag", nrow = nFactors, ncol = nFactors, free = T, labels = psi_lab_c, values = 0, lbound = -20, ubound = 20 ), 
+                           mxMatrix(name="psi_e", 		type="Diag", nrow = nFactors, ncol = nFactors, free = T, labels = psi_lab_e, values = psi_e_val, lbound = -20, ubound = 20 ), 
+                           # Beta - causal pathways
+                           mxMatrix(name="beta", 			type="Full", nrow = nFactors, ncol = nFactors, free = betaF, labels = b_lab, lbound = -2.5, ubound = 2.5 ),
+                           #mxMatrix(name="betaC", 		type="Full", nrow = nFactors, ncol = nFactors, free = betaF, labels = b_labA, lbound = -2.5, ubound = 2.5 ),
+                           #mxMatrix(name="betaE", 		type="Full", nrow = nFactors, ncol = nFactors, free = betaF, labels = b_labA, lbound = -2.5, ubound = 2.5 ), 
+                           mxMatrix(name="I",				type="Iden", nrow = nFactors, ncol = nFactors),
+                           # Lamba                    	
+                           mxMatrix(name="lamba",			type="Full", nrow = nv, ncol = nv, free = F, values = diag(nv)), 
+                           # Epsilon - errors                                                                                   
+                           mxMatrix(name="epsilon_e", 	type="Diag", nrow = nVariables, ncol = nVariables, free = T, labels = res_lab_e, values = 4),  
+                           mxAlgebra(name="A", 			expression= lamba %&% (solve(I-beta) %&% psi_a) ), 				# + epsilon_a
+                           mxAlgebra(name="C", 			expression= lamba %&% (solve(I-beta) %&% psi_c) ), 				# + epsilon_c
+                           mxAlgebra(name="E", 			expression= lamba %&% (solve(I-beta) %&% psi_e) + epsilon_e), 	# 
+                           mxAlgebra(name="expCovMZ", 	expression= rbind( cbind(A+C+E, A+C), cbind(A+C, A+C+E))),
+                           mxAlgebra(name="expCovDZ", 	expression= rbind( cbind(A+C+E, 0.5%x%A+C), cbind(0.5%x%A+C, A+C+E))),
+                           # Standardization
+                           mxAlgebra(name="corrP",		expression= cov2cor(A+C+E)),
+                           mxAlgebra(name="corrA", 		expression= cov2cor(A)),
+                           mxAlgebra(name="corrE", 		expression= cov2cor(E)), 
+                           mxAlgebra(name="VC",			expression=cbind(A,C,E,A/(A+C+E),C/(A+C+E),E/(A+C+E)), dimnames=list(rep('VC',nv),rep(c('A','C','E','SA','SC','SE'),each=nv))), 
+                           mxCI(c("ia11","ia22","ia33","ia44",
+                                  "ie11","ie22","ie33","ie44","VC[1,13]","VC[2,14]","VC[3,15]","VC[4,16]","ic11","ic22","ic33","ic44","VC[1,21]","VC[2,22]","VC[3,23]","VC[4,24]","res_e", "b",
+                                  "corrA[1,2]","corrA[1,3]","corrA[1,4]",
+                                              "corrA[2,3]", "corrA[2,4]",
+                                                            "corrA[3,4]",
+                                  "corrE[1,2]","corrE[1,3]","corrE[1,4]",
+                                  "corrE[2,3]", "corrE[2,4]",
+                                                "corrE[3,4]") )), 
+                   # Means & definition variables
+                   mxModel("MZ", mxData(			mzdata, type ="raw"), mxExpectationNormal("top.expCovMZ", means="top.expMean", dimnames=selVars ), mxFitFunctionML() ),  
+                   mxModel("DZ", mxData(			dzdata, type ="raw"), mxExpectationNormal("top.expCovDZ", means="top.expMean", dimnames=selVars ), mxFitFunctionML() ),
+                   mxFitFunctionMultigroup(c("MZ","DZ"))
+)
+omxGetParameters(auto_PBA)
+#mxCheckIdentification( auto_PBA )
+options(max.print = 3000)
+auto_uls 				<- mxAutoStart(auto_PBA)
+summary(auto_fit 	<- mxTryHard(auto_uls))
+auto_fit$top$algebras$VC$result
+
+auto_fit$top$algebras$corrP$result
+auto_fit$top$algebras$corrA$result
+
+auto_fitci<-summary(omxRunCI(auto_fit, optimizer = "SLSQP"),verbose=T)
+
+
+# ACE 
+summary( auto_PBA_fit 		<- mxTryHard( auto_uls,  extraTries=35, greenOK=FALSE,checkHess=FALSE,intervals=F) )
+summary( auto_PBA_fit )  
+
+auto_fit$top$algebras$VC$result
+
+omxGetParameters(auto_PBA)
+
+
+mxCI(c("VC[1,13]","VC[1,14]","VC[1,15]","VC[1,16]",
+       "VC[2,13]","VC[2,14]","VC[2,15]","VC[2,16]",
+       "VC[3,13]","VC[3,14]","VC[3,15]","VC[3,16]",
+       "VC[4,13]","VC[4,14]","VC[4,15]","VC[4,16]"
+)) #VC[1,10]
+
+#ADDING MEMORY;
+selVars    = c( "SM_V1_T1", "SM_V2_T1", "SM_V3_T1", "MEMORY_V1_T1", "MEMORY_V2_T1","MEMORY_V3_T1",
+                "SM_V1_T2", "SM_V2_T2", "SM_V3_T2","MEMORY_V1_T2", "MEMORY_V2_T2","MEMORY_V3_T2")
+nv        	= 6                   		
+ntv       	= nv*2
+mzdata		= subset(newtwins, ZYG2019==1,selVars) 
+dzdata		= subset(newtwins, ZYG2019==2,selVars) 
+
+psych::describe(mzdata)
+psych::describe(dzdata)
+
+nv     	= length(selVars)/2     
+ntv    	= nv*2    
+thVals 	= 0.5
+aLabs  	= paste("a",rev(nv+1-sequence(1:nv)),rep(1:nv,nv:1),sep="")
+cLabs  	= paste("c",rev(nv+1-sequence(1:nv)),rep(1:nv,nv:1),sep="")
+eLabs  	= paste("e",rev(nv+1-sequence(1:nv)),rep(1:nv,nv:1),sep="") 
+
+
+aVals		= c(.60, .87,.86,.09,.37,.79); 	
+cVals	 	= c(.02,-.14,-.08,.46,-.13,-.36); 	valDiag(cVals,6)
+eVals   	= c(.40,.39,.44,.4,.4,.4);  	valDiag(eVals,6)
+
+lbTh   <- matrix(rep(c(-3,(rep(0.001,nth-1))),nvo),nrow=nth,ncol=nvo)   # lower bounds for thresholds
+ubTh   <- matrix(rep(c(5,(rep(3,nth-1))),nvo),nrow=nth,ncol=nvo)     	# lower bounds for thresholds
+labTh  <- c(paste("v2","t",1:nth,sep=""))
+
+umx::umx_set_optimizer(opt="SLSQP")
+mxOption(NULL,"mvnRelEps",0.0055)
+mxOption(NULL, 'Number of Threads', parallel::detectCores())
+
+bivariate = mxModel("ACE",
+                    mxModel("top",
+                            mxMatrix(	name="Means", 		type="Full", nrow=1, ncol=nv, free=T, labels=c("m1","m2", "m3","m4","m5","m6")), # Mean matrix for one twin. The 2nd variable is ordinal, mean of zero.
+                            mxAlgebra(name="expMean", 	cbind(Means,Means)), # Mean matrices for twin 1 and twin 2
+                            mxMatrix(	name="A",			type="Symm", nrow=nv, ncol=nv, free=T, labels=aLabs, lbound= -10, ubound= 10), 		# Constrains element [2,2] to 1
+                            mxMatrix(	name="C",			type="Symm", nrow=nv, ncol=nv, free=F, values = 0, labels=cLabs, lbound= -20, ubound=20), 		# Constrains element [2,2] to 1
+                            mxMatrix(	name="E",			type="Symm", nrow=nv, ncol=nv, free=T, labels=eLabs,  lbound= -10, ubound=10),
+                            mxAlgebra(name="expCovMZ",	expression= rbind( cbind(A+C+E, A+C  ), cbind(  A+C, A+C+E))),
+                            mxAlgebra(name="expCovDZ",	expression= rbind( cbind(A+C+E, 0.5%x%A+C), cbind( 0.5%x%A+C, A+C+E) )),
+                            mxAlgebra(	name="corrP",	expression=cov2cor(A+C+E)),
+                            mxAlgebra(	name="corrA",	expression=cov2cor(A)),
+                            mxAlgebra(	name="corrE",	expression=cov2cor(E)),
+                            mxCI(c("VC[1,22]","corrA[1,2]","corrA[1,3]","corrA[1,4]","corrA[1,5]","corrA[1,6]",
+                                                      "VC[3,24]","corrA[3,4]","corrA[3,5]","corrA[3,6]",
+                                                                "VC[4,25]","corrA[4,5]","corrA[4,6]",
+                                                                            "VC[5,26]","corrA[5,6]")), #VC[1,10]
+                            mxAlgebra(name="VC", expression=cbind(A,C,E,A/(A+C+E),C/(A+C+E),E/(A+C+E)), dimnames=list(rep('VC',nv),rep(c('A','C','E','SA','SC','SE'),each=nv)) ) ),
+                    
+                    mxModel("MZ", mxData(mzdata, type ="raw"), mxExpectationNormal("top.expCovMZ", means="top.expMean", dimnames=selVars), mxFitFunctionML() ),
+                    mxModel("DZ", mxData(dzdata, type ="raw"), mxExpectationNormal("top.expCovDZ", means="top.expMean", dimnames=selVars), mxFitFunctionML() ),
+                    mxFitFunctionMultigroup(c("MZ","DZ"))
+)
+omxGetParameters(bivariate)
+
+# mxCheckIdentification(multi_PBA)
+
+# Run unweighted least squares to find better start values
+uls <- mxAutoStart(bivariate)
+summary(uls_fit 	<- mxTryHard(uls, intervals=F))
+summary(uls_fit,verbose = T)
+uls_fitci<-summary(omxRunCI(uls_fit, optimizer = "SLSQP"),verbose=T)
+uls_fit$top$algebras$VC$result
+
+uls_fit$top$algebras$corrP$result
+uls_fit$top$algebras$corrA$result
+
+uls_fitci<-summary(omxRunCI(uls_fit, optimizer = "SLSQP"),verbose=T)
+
+
+auto_fit_AE_r
+subs 						<- c(auto_fit_AE_r, cp_1F_PBA_AE_fit,ip_PBA_fit, cp_1F_PBA_fit, auto_fit, auto_fit_AE)
+comps						<- mxCompare(uls_fit_emp,subs );comps
+
+subs 						<- c(auto_fit_AE)
+comps						<- mxCompare(auto_fit,subs );comps
+
+
+
+
+summary(auto_fit_AE,verbose=T)
+
+
+
+
+
+
+
+
+
+
+
+
+############################################################################
+# Autoregression - PBA at ges 51-55, 56-60, 61-65 & 66+
+
+selVars <- c("RATE_V1C_T1","RATE_V2C_T1","RATE_V3C_T1","WORRY_V1C_T1","WORRY_V2C_T1","WORRY_V3C_T1","DEP_V1_T1","DEP_V2_T1","DEP_V3_T1",
+             "MEMORY_V1_T1","MEMORY_V2_T1","MEMORY_V3_T1",
+             "RATE_V1C_T2","RATE_V2C_T2","RATE_V3C_T2","WORRY_V1C_T2","WORRY_V2C_T2","WORRY_V3C_T2","DEP_V1_T2","DEP_V2_T2","DEP_V3_T2",
+             "MEMORY_V1_T2","MEMORY_V2_T2","MEMORY_V3_T2")
+varsO		<- c("RATE_V1C_T1", "RATE_V2C_T1", "RATE_V3C_T1",
+            "RATE_V1C_T2", "RATE_V2C_T2", "RATE_V3C_T2")
+mzdata		= subset(newtwins, ZYG2019==1,selVars) 
+dzdata		= subset(newtwins, ZYG2019==2,selVars) 
+mzdata<-  na.omit(mzdata)
+dzdata<-  na.omit(dzdata)
+cov(mzdata[selVars],use="complete")
+cov(dzdata[selVars],use="complete")
+
+describe(mzdata[selVars])
+describe(dzdata[selVars])
+
+# mxOption(NULL,"mvnRelEps",0.0045)
+nv     	= length(selVars)/2     
+ntv    	= nv*2    
+nVariables	= 3
+nFactors	= 3
+psi_lab_a	= c("ia11","ia22","ia33")
+psi_lab_c	= c("ic11","ic22","ic33")
+psi_lab_e	= c("ie11","ie22","ie33")
+res_lab_a	= c("res_a1","res_a2","res_a3")
+res_lab_c	= c("res_c1","res_c2","res_c3")
+res_lab_e	= "res_e"
+b_labC 		= matrix(c(NA, NA, NA, 
+                    "bC", NA, NA,  
+                    NA,"bC", NA),nVariables,byrow = TRUE)
+b_labE 		= matrix(c(NA, NA, NA, 
+                    "bE", NA, NA,  
+                    NA,"bE", NA),nVariables,byrow = TRUE)
+betaF   	= matrix(c(F,F,F, 
+                    T,F,F,  
+                    F,T,F),3,byrow = TRUE)
+beta_lab 	= matrix(c(NA, NA, NA, 
+                     "b", NA, NA,  
+                     NA,"b", NA),3,byrow = TRUE)
+beta_val 	= 0.9
+
+loadS 		= diag(nFactors)
+loadF 		= F
+
+# round(t(diag2vec(auto_PBA_ACE_fit$top$matrices$psi_a$values)),1)
+psi_a_val	= c( 21,3,5)
+psi_c_val	= c( -1,-1,-1)
+psi_e_val	= c( 3,4,-1)
+
+# round(t(diag2vec(auto_PBA_ACE_fit$top$matrices$epsilon_a$values)),1)
+# epsi_a_val	=c(-0.7,-0.2,-0.2)
+# epsi_c_val	=c(0.2,-0.1,0.1)
+epsi_e_val	= 0.8
+
+auto_PBA = mxModel("ACE",
+                   mxModel("top",
+                           # Means & definition variables
+                           mxMatrix( name="Mean", 		type="Full", nrow=3, ncol=1, free = T, labels = c("m1","m2","m3"), values=0, lbound = -5, ubound = 5 ),
+                           mxMatrix( name="Bage", 		type="Full", nrow=3, ncol=1, free=T, labels=c("Bage1","Bage2","Bage3"),    values = 1.1, lbound = -25,ubound = 25),
+                           mxMatrix( name="Bdep", 		type="Full", nrow=3, ncol=1, free=T, labels=c("Bdep1","Bdep2","dep3"),    values = 1.1, lbound = -25,ubound = 25),
+                           mxMatrix( name="Bmem", 		type="Full", nrow=3, ncol=1, free=T, labels=c("Bmem1","Bmem2","Bmem3"),    values = 1.1, lbound = -25,ubound = 25),
+                           
+                           #Thresholds
+                           mxMatrix( name="th",			type="Full",  nrow=1, ncol=6, free=T, values = 1, labels=varsO), 	# Threshold matrix for one twin
+                           # Beta - causal pathways
+                           mxMatrix(name="beta", 			type="Full", nrow = nFactors, ncol = nFactors, free=betaF, labels=beta_lab, values=0.8, lbound = -10, ubound = 10), # , lbound = 0.0001, ubound = 10
+                           mxMatrix(name="I",				type="Iden", nrow = nFactors, ncol = nFactors),
+                           mxMatrix(name="lamba",			type="Full", nrow = 3, ncol = 3, free = F, values = diag(3)),
+                           # Psi - innovations
+                           mxMatrix(name="psi_a", 		type="Diag", nrow = nFactors, ncol = nFactors, free = T, labels = psi_lab_a, 	lbound = -5, ubound = 5), # values = psi_a_val, 
+                           mxMatrix(name="psi_c", 		type="Diag", nrow = nFactors, ncol = nFactors, free = T, labels = psi_lab_c, 	lbound = -5, ubound = 5), # values = psi_c_val, 
+                           mxMatrix(name="psi_e", 		type="Diag", nrow = nFactors, ncol = nFactors, free = T, labels = psi_lab_e, 	lbound = -5, ubound = 5), # values = psi_e_val, 
+                           
+                           # Epsilon - errors
+                           mxMatrix(name="epsilon_a", 	type="Diag", nrow = nVariables, ncol = nVariables, free = T, labels = res_lab_a, lbound = -5, ubound = 5), # values = 0.1, 
+                           mxMatrix(name="epsilon_c", 	type="Diag", nrow = nVariables, ncol = nVariables, free = T, labels = res_lab_c, lbound = -5, ubound = 5), # values = 0.1, 
+                           mxMatrix(name="epsilon_e", 	type="Diag", nrow = nVariables, ncol = nVariables, free = T, labels = res_lab_e, lbound = -5, ubound = 5), # values = 0.4, 
+                           mxAlgebra(name="A", 			expression= (lamba %&% (solve(I-beta) %&% psi_a%*%t(psi_a))) + (epsilon_a%*%t(epsilon_a))),
+                           mxAlgebra(name="C", 			expression= (lamba %&% (solve(I-beta) %&% psi_c%*%t(psi_c))) + (epsilon_c%*%t(epsilon_c))),
+                           mxAlgebra(name="E", 			expression= (lamba %&% (solve(I-beta) %&% psi_e%*%t(psi_e))) + (epsilon_e%*%t(epsilon_e))),  
+                           mxAlgebra(name="expCovMZ", 	expression= rbind( cbind(A+C+E, A+C), cbind(A+C, A+C+E))),
+                           mxAlgebra(name="expCovDZ", 	expression= rbind( cbind(A+C+E, 0.5%x%A+C), cbind(0.5%x%A+C, A+C+E))),
+                           mxAlgebra(name="corrP",		expression= cov2cor(A+C+E)),
+                           mxAlgebra(name="corrA", 		expression= cov2cor(A)),
+                           mxAlgebra(name="corrC", 		expression= cov2cor(C)),
+                           mxCI(c("VC[1,10]","VC[2,11]","VC[3,12]",
+                                  "VC[1,16]","VC[2,17]","VC[3,18]")),   
+                           # Standardization
+                           # mxMatrix(name="unitM",type="Unit", nrow=nv, ncol=1),
+                           # mxConstraint(name="ConVar",expression=diag2vec(A+C+E)==unitM), 
+                           mxAlgebra(name="VC",expression=cbind(A,C,E,A/(A+C+E),C/(A+C+E),E/(A+C+E)), dimnames=list(rep('VC',nVariables),rep(c('A','C','E','SA','SC','SE'),each=nVariables))) 
+                   ),
+                   
+                   
+                   # Means & definition variables"MEMORY_V1_T1","MEMORY_V2_T1","MEMORY_V3_T1"
+                   mxModel("MZ", mxData(			mzdata, type ="raw"),
+                           mxMatrix(	name="AgeDef_T1", 	type="Full", nrow=3, ncol=1, free=F, labels=c("data.WORRY_V1C_T1","data.WORRY_V2C_T1","data.WORRY_V3C_T1")),
+                           mxMatrix(	name="AgeDef_T2", 	type="Full", nrow=3, ncol=1, free=F, labels=c("data.WORRY_V1C_T2","data.WORRY_V2C_T2","data.WORRY_V3C_T2")),
+                           mxMatrix(	name="Dep_T1", 	type="Full", nrow=3, ncol=1, free=F, labels=c("data.DEP_V1_T1","data.DEP_V2_T1","data.DEP_V3_T1")),
+                           mxMatrix(	name="Dep_T2", 	type="Full", nrow=3, ncol=1, free=F, labels=c("data.DEP_V1_T2","data.DEP_V2_T2","data.DEP_V3_T2")),
+                           mxMatrix(	name="MEMORY_T1", 	type="Full", nrow=3, ncol=1, free=F, labels=c("data.MEMORY_V1_T1","data.MEMORY_V2_T1","data.MEMORY_V3_T1")),
+                           mxMatrix(	name="MEMORY_T2", 	type="Full", nrow=3, ncol=1, free=F, labels=c("data.MEMORY_V1_T2","data.MEMORY_V2_T2","data.MEMORY_V3_T2")),
+                           
+                           mxAlgebra( name="expMean", 	expression= cbind(top.Mean + top.Bage*AgeDef_T1 + top.Bdep*Dep_T1 + top.Bmem*MEMORY_T1 , 
+                                                                         top.Mean + top.Bage*AgeDef_T2 + top.Bdep*Dep_T2 + top.Bmem*MEMORY_T2)), 
+                           mxExpectationNormal("top.expCovMZ", means="expMean", dimnames=varsO, thresholds="top.th", threshnames=varsO), 
+                           mxFitFunctionML()
+                   ),
+                   mxModel("DZ", mxData(			dzdata, type ="raw"),
+                           mxMatrix(	name="AgeDef_T1", 	type="Full", nrow=3, ncol=1, free=F, labels=c("data.WORRY_V1C_T1","data.WORRY_V2C_T1","data.WORRY_V3C_T1")),
+                           mxMatrix(	name="AgeDef_T2", 	type="Full", nrow=3, ncol=1, free=F, labels=c("data.WORRY_V1C_T2","data.WORRY_V2C_T2","data.WORRY_V3C_T2")),
+                           mxMatrix(	name="Dep_T1", 	type="Full", nrow=3, ncol=1, free=F, labels=c("data.DEP_V1_T1","data.DEP_V2_T1","data.DEP_V3_T1")),
+                           mxMatrix(	name="Dep_T2", 	type="Full", nrow=3, ncol=1, free=F, labels=c("data.DEP_V1_T2","data.DEP_V2_T2","data.DEP_V3_T2")),
+                           mxMatrix(	name="MEMORY_T1", 	type="Full", nrow=3, ncol=1, free=F, labels=c("data.MEMORY_V1_T1","data.MEMORY_V2_T1","data.MEMORY_V3_T1")),
+                           mxMatrix(	name="MEMORY_T2", 	type="Full", nrow=3, ncol=1, free=F, labels=c("data.MEMORY_V1_T2","data.MEMORY_V2_T2","data.MEMORY_V3_T2")),
+                           mxAlgebra( name="expMean", 	expression= cbind(top.Mean + top.Bage*AgeDef_T1 + top.Bdep*Dep_T1 + top.Bmem*MEMORY_T1,
+                                                                         top.Mean + top.Bage*AgeDef_T2 + top.Bdep*Dep_T2 + top.Bmem*MEMORY_T2)), 
+                           mxExpectationNormal("top.expCovDZ", means="expMean", dimnames=varsO, thresholds="top.th", threshnames=varsO),
+                           mxFitFunctionML()
+                   ),
+                   mxFitFunctionMultigroup(c("MZ","DZ")))
+
+omxGetParameters(auto_PBA)
+#mxCheckIdentification( auto_PBA )
+
+auto_uls 				<- mxAutoStart(auto_PBA)
+#summary(uls_fit 	<- mxTryHardOrdinal(auto_PBA))
+
+# ACE 
+summary( auto_PBA_fit 		<- mxTryHardOrdinal( auto_PBA,  extraTries=35, greenOK=FALSE,checkHess=FALSE,intervals=F) )
+summary( auto_PBA_fit, verbose = T )  
+
+auto_PBA_fit$top$algebras$VC$result
+auto_PBA_fitci<-summary(omxRunCI(auto_PBA_fit, optimizer = "SLSQP"),verbose=T)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Common Pathway 1 factor - PBA at ges 51-55, 56-60, 61-65 & 66+
+
+selVars    = c("SM_V1_T1", "SM_V2_T1", "SM_V3_T1", "MEMORY_V1_T1","MEMORY_V2_T1","MEMORY_V3_T1",
+               "SM_V1_T2", "SM_V2_T2", "SM_V3_T2","MEMORY_V1_T2","MEMORY_V2_T2","MEMORY_V3_T2")
+
+mzdata		<- subset(newtwins, ZYG2019==1, selVars); # dim(mzdata) # 475  10
+dzdata		<- subset(newtwins, ZYG2019==2, selVars); # dim(dzdata) # 335  10
+
+nv     	= length(selVars)/2     
+ntv    	= nv*2    
+
+
+nVariables	= 6
+nFactors	= 2
+#thVals 	= 0.5
+#nth 		= 1
+#svLTh  	= 1.1    # start value for first threshold
+#svITh  	= 1.0    # start value for increments
+#svTh   	= matrix(rep(c(svLTh,(rep(svITh,nth-1)))),nrow=nth,ncol=nv)     # start value for thresholds
+#round(auto_ACE_fit$matrices$thresh$values,2)
+#Th_val		= c(1.2,1.1,1.1)
+#Th_lb   	= matrix(rep(c(-3,(rep(0.001,nth-1))),nv),nrow=nth,ncol=nv)     # lower bounds for thresholds
+#Th_lab  	= c(paste("th",1:nth,"v1",sep=""),paste("th",1:nth,"v2",sep=""),paste("th",1:nth,"v3",sep=""))
+psi_lab_a	= c("ia11","ia21","ia22")
+psi_lab_c	= c("ic11","ic21","ic22")
+psi_lab_e	= c("ie11","ie21","ie22")
+#round(t(diag2vec(auto_ACE_fit$matrices$psi_c$values)),2)
+psi_a_val	= 0.7
+psi_c_val	= 0.2
+psi_e_val	= 0.2
+res_lab_a	= c("res_a1","res_a2","res_a3","res_a4","res_a5","res_a6")
+res_lab_c	= c("res_c1","res_c2","res_c3","res_c4","res_c5","res_c6")
+res_lab_e	= c("res_e1","res_e2","res_e3","res_e4","res_e5","res_e6")
+loadS 		= 0.8
+loadF 		= T
+lamba_lab	= c("f11","f21","f31","f41","f51","f61","f12","f22","f32","f42","f52","f62")
+
+cp_2F_PBA = mxModel("ACE",
+                    mxModel("top",
+                            mxMatrix(name="Mean", 		type="Full", nrow=1, ncol=nv, free = T, labels = c("m1","m2","m3","m4","m5","m6"), lbound = -15, ubound = 5 ),
+                            #Thresholds
+                            mxAlgebra(name="expMean", 	expression= cbind(Mean, Mean)),  
+                            mxMatrix(name="psi_a", 		type="Symm", nrow = nFactors, ncol = nFactors, free = T, labels = psi_lab_a, values = 0, lbound = -40, ubound = 40), #  
+                            mxMatrix(name="psi_c", 		type="Symm", nrow = nFactors, ncol = nFactors, free = F, labels = psi_lab_c, values = 0, lbound = -40, ubound = 40), #  
+                            mxMatrix(name="psi_e", 		type="Symm", nrow = nFactors, ncol = nFactors, free = T, labels = psi_lab_e, values = 1, lbound = -40, ubound = 40), #  
+                            mxMatrix(name="lamba",		type="Full", nrow = nv, ncol = nFactors, free = c(T,T,T,F,F,F,F,F,F,T,T,T), labels= lamba_lab, values = c(1,1,1,0,0,0,0,0,0,1,1,1), lbound = 0, ubound = 20), # 
+                            mxMatrix(name="epsilon_a", 	type="Diag", nrow = nv, ncol = nv, free = T, labels = res_lab_a, values =   0, lbound = -40, ubound = 40), #  
+                            mxMatrix(name="epsilon_c", 	type="Diag", nrow = nv, ncol = nv, free = T, labels = res_lab_c, values =   0, lbound = -40, ubound = 40), #  
+                            mxMatrix(name="epsilon_e", 	type="Diag", nrow = nv, ncol = nv, free = T, labels = res_lab_e, values = 0.1, lbound = -40, ubound = 40), #  
+                            mxAlgebra(name="A", 			expression= lamba %&% psi_a + epsilon_a),
+                            mxAlgebra(name="C", 			expression= lamba %&% psi_c + epsilon_c),
+                            mxAlgebra(name="E", 			expression= lamba %&% psi_e + epsilon_e),  
+                            mxAlgebra(name="expCovMZ", 	expression= rbind( cbind(A+C+E, A+C), cbind(A+C, A+C+E))),
+                            mxAlgebra(name="expCovDZ", 	expression= rbind( cbind(A+C+E, 0.5%x%A+C), cbind(0.5%x%A+C, A+C+E))),
+                            mxAlgebra(name="corrP",		expression= cov2cor(A+C+E)),
+                            mxAlgebra(name="corrA", 		expression= cov2cor(A)),
+                            mxAlgebra(name="corrE", 		expression= cov2cor(E)),
+                            # Standardization - constrain variance of CP = 1
+                            mxMatrix(name="unitM",type="Unit", nrow=2, ncol=1),
+                            mxConstraint(name="ConVar",expression=diag2vec(psi_a+psi_c+psi_e)==unitM),  
+                            # Standardization - constrain variance of CP = 1
+                            mxMatrix(name="unitM",type="Unit", nrow=nFactors, ncol=1),
+                            mxConstraint(name="ConVar",expression=diag2vec(psi_a+psi_c+psi_e)==unitM),  
+                            mxCI(c("psi_a","psi_e", "ia11","ia21","ia22","ie11","ie21","ie22","f11","f21","f31","f41",
+                                   "f52","f62")), #"ia11","ie11", "res_a1","res_a2","res_a3","res_a4","res_e1","res_e2","res_e3","res_e4", "f11","f21","f31","f41",
+                            # "VC[1,13]","VC[2,14]","VC[3,15]","VC[4,16]", "VC[1,21]","VC[2,22]","VC[3,23]","VC[4,24]","corrA[2,1]"
+                            mxAlgebra(name="VC",expression=cbind(A,C,E,A/(A+C+E),C/(A+C+E),E/(A+C+E)), dimnames=list(rep('VC',nv),rep(c('A','C','E','SA','SC','SE'),each=nv)))), 
+                    # Multiple groups
+                    mxModel("MZ", mxData(	mzdata, type ="raw"), mxExpectationNormal(	covariance="top.expCovMZ", means="top.expMean", dimnames=selVars), mxFitFunctionML()),   
+                    mxModel("DZ", mxData( dzdata, type ="raw"), mxExpectationNormal(	covariance="top.expCovDZ", means="top.expMean", dimnames=selVars), mxFitFunctionML()),   
+                    mxFitFunctionMultigroup(c("MZ","DZ")))
+
+omxGetParameters(cp_2F_PBA)
+#mxCheckIdentification(cp_1F_PBA)
+cp_2F_uls 				<- mxAutoStart(cp_2F_PBA)
+cp_2F_PBA_fitci
+
+# ACE 
+summary( cp_2F_PBA_fit 		<- mxTryHard(cp_2F_uls,  extraTries=25, greenOK=FALSE,checkHess=FALSE,fit2beat=Inf,intervals=F) )
+summary( cp_2F_PBA_fit )  
+cp_2F_PBA_fit$top$corrP
+cp_2F_PBA_fitci<-summary(omxRunCI(cp_2F_PBA_fit, optimizer = "SLSQP"),verbose=T)
+cp_2F_PBA_fitci
+
+#Depressive Symptoms
+
+selVars    = c("SM_V1_T1", "SM_V2_T1", "SM_V3_T1", "ZDEP_V1_T1","ZDEP_V2_T1","ZDEP_V3_T1",
+               "SM_V1_T2", "SM_V2_T2", "SM_V3_T2","ZDEP_V1_T2","ZDEP_V2_T2","ZDEP_V3_T2")
+
+mzdata		<- subset(newtwins, ZYG2019==1, selVars); # dim(mzdata) # 475  10
+dzdata		<- subset(newtwins, ZYG2019==2, selVars); # dim(dzdata) # 335  10
+
+nv     	= length(selVars)/2     
+ntv    	= nv*2    
+
+
+nVariables	= 6
+nFactors	= 2
+#thVals 	= 0.5
+#nth 		= 1
+#svLTh  	= 1.1    # start value for first threshold
+#svITh  	= 1.0    # start value for increments
+#svTh   	= matrix(rep(c(svLTh,(rep(svITh,nth-1)))),nrow=nth,ncol=nv)     # start value for thresholds
+#round(auto_ACE_fit$matrices$thresh$values,2)
+#Th_val		= c(1.2,1.1,1.1)
+#Th_lb   	= matrix(rep(c(-3,(rep(0.001,nth-1))),nv),nrow=nth,ncol=nv)     # lower bounds for thresholds
+#Th_lab  	= c(paste("th",1:nth,"v1",sep=""),paste("th",1:nth,"v2",sep=""),paste("th",1:nth,"v3",sep=""))
+psi_lab_a	= c("ia11","ia21","ia22")
+psi_lab_c	= c("ic11","ic21","ic22")
+psi_lab_e	= c("ie11","ie21","ie22")
+#round(t(diag2vec(auto_ACE_fit$matrices$psi_c$values)),2)
+psi_a_val	= 0.7
+psi_c_val	= 0.2
+psi_e_val	= 0.2
+res_lab_a	= c("res_a1","res_a2","res_a3","res_a4","res_a5","res_a6")
+res_lab_c	= c("res_c1","res_c2","res_c3","res_c4","res_c5","res_c6")
+res_lab_e	= c("res_e1","res_e2","res_e3","res_e4","res_e5","res_e6")
+loadS 		= 0.8
+loadF 		= T
+lamba_lab	= c("f11","f21","f31","f41","f51","f61","f12","f22","f32","f42","f52","f62")
+
+cp_2F_PBA = mxModel("ACE",
+                    mxModel("top",
+                            mxMatrix(name="Mean", 		type="Full", nrow=1, ncol=nv, free = T, labels = c("m1","m2","m3","m4","m5","m6"), lbound = -15, ubound = 5 ),
+                            #Thresholds
+                            mxAlgebra(name="expMean", 	expression= cbind(Mean, Mean)),  
+                            mxMatrix(name="psi_a", 		type="Symm", nrow = nFactors, ncol = nFactors, free = T, labels = psi_lab_a, values = 0, lbound = -1, ubound = 1), #  
+                            mxMatrix(name="psi_c", 		type="Symm", nrow = nFactors, ncol = nFactors, free = F, labels = psi_lab_c, values = 0, lbound = -1, ubound = 1), #  
+                            mxMatrix(name="psi_e", 		type="Symm", nrow = nFactors, ncol = nFactors, free = T, labels = psi_lab_e, values = 1, lbound = -1, ubound = 1), #  
+                            mxMatrix(name="lamba",		type="Full", nrow = nv, ncol = nFactors, free = c(T,T,T,F,F,F,F,F,F,T,T,T), labels= lamba_lab, values = c(1,1,1,0,0,0,0,0,0,1,1,1), lbound = 0, ubound = 20), # 
+                            mxMatrix(name="epsilon_a", 	type="Diag", nrow = nv, ncol = nv, free = T, labels = res_lab_a, values =   0, lbound = -40, ubound = 40), #  
+                            mxMatrix(name="epsilon_c", 	type="Diag", nrow = nv, ncol = nv, free = T, labels = res_lab_c, values =   0, lbound = -40, ubound = 40), #  
+                            mxMatrix(name="epsilon_e", 	type="Diag", nrow = nv, ncol = nv, free = T, labels = res_lab_e, values = 0.1, lbound = -40, ubound = 40), #  
+                            mxAlgebra(name="A", 			expression= lamba %&% psi_a + epsilon_a),
+                            mxAlgebra(name="C", 			expression= lamba %&% psi_c + epsilon_c),
+                            mxAlgebra(name="E", 			expression= lamba %&% psi_e + epsilon_e),  
+                            mxAlgebra(name="expCovMZ", 	expression= rbind( cbind(A+C+E, A+C), cbind(A+C, A+C+E))),
+                            mxAlgebra(name="expCovDZ", 	expression= rbind( cbind(A+C+E, 0.5%x%A+C), cbind(0.5%x%A+C, A+C+E))),
+                            mxAlgebra(name="corrP",		expression= cov2cor(A+C+E)),
+                            mxAlgebra(name="corrA", 		expression= cov2cor(A)),
+                            mxAlgebra(name="corrE", 		expression= cov2cor(E)),
+                            # Standardization - constrain variance of CP = 1
+                            mxMatrix(name="unitM",type="Unit", nrow=2, ncol=1),
+                            mxConstraint(name="ConVar",expression=diag2vec(psi_a+psi_c+psi_e)==unitM),  
+                            # Standardization - constrain variance of CP = 1
+                            mxMatrix(name="unitM",type="Unit", nrow=nFactors, ncol=1),
+                            mxConstraint(name="ConVar",expression=diag2vec(psi_a+psi_c+psi_e)==unitM),  
+                            mxCI(c("psi_a","psi_e", "ia11","ia21","ia22","ie11","ie21","ie22","f11","f21","f31","f42",
+                                   "f52","f62","corrA[1,2]")), #"ia11","ie11", "res_a1","res_a2","res_a3","res_a4","res_e1","res_e2","res_e3","res_e4", "f11","f21","f31","f41",
+                            # "VC[1,13]","VC[2,14]","VC[3,15]","VC[4,16]", "VC[1,21]","VC[2,22]","VC[3,23]","VC[4,24]","corrA[2,1]"
+                            mxAlgebra(name="VC",expression=cbind(A,C,E,A/(A+C+E),C/(A+C+E),E/(A+C+E)), dimnames=list(rep('VC',nv),rep(c('A','C','E','SA','SC','SE'),each=nv)))), 
+                    # Multiple groups
+                    mxModel("MZ", mxData(	mzdata, type ="raw"), mxExpectationNormal(	covariance="top.expCovMZ", means="top.expMean", dimnames=selVars), mxFitFunctionML()),   
+                    mxModel("DZ", mxData( dzdata, type ="raw"), mxExpectationNormal(	covariance="top.expCovDZ", means="top.expMean", dimnames=selVars), mxFitFunctionML()),   
+                    mxFitFunctionMultigroup(c("MZ","DZ")))
+
+omxGetParameters(cp_2F_PBA)
+#mxCheckIdentification(cp_1F_PBA)
+cp_2F_uls 				<- mxAutoStart(cp_2F_PBA)
+summary( cp_2F_uls_fit 		<- mxTryHard( cp_2F_uls,  extraTries=35, greenOK=FALSE,checkHess=FALSE,intervals=F) )
+uls_fitci<-summary(omxRunCI(cp_2F_uls_fit, optimizer = "SLSQP"),verbose=T)
+options(max.print = 3000)
+uls_fitci
+cp_2F_PBA_fitci
+cp_2F_uls_fit$top$psi_a
+
+
+#LOOKING AT HERITABILITY OF CHANGE; 
+
+#ADDING MEMORY;
+selVars    = c( "sm_delta0_T1", "sm_delta1_T1", "sm_delta2_T1", "mem_delta1_T1", "mem_delta2_T1",
+                "sm_delta0_T2", "sm_delta1_T2", "sm_delta2_T2", "mem_delta1_T2", "mem_delta2_T2")
+nv        	= 5                   		
+ntv       	= nv*2
+mzdata		= subset(newtwins, ZYG2019==1,selVars) 
+dzdata		= subset(newtwins, ZYG2019==2,selVars) 
+
+psych::describe(mzdata)
+psych::describe(dzdata)
+
+nv     	= length(selVars)/2     
+ntv    	= nv*2    
+thVals 	= 0.5
+aLabs  	= paste("a",rev(nv+1-sequence(1:nv)),rep(1:nv,nv:1),sep="")
+cLabs  	= paste("c",rev(nv+1-sequence(1:nv)),rep(1:nv,nv:1),sep="")
+eLabs  	= paste("e",rev(nv+1-sequence(1:nv)),rep(1:nv,nv:1),sep="") 
+
+
+aVals		= c(.60, .87,.86,.09,.37,.79); 	
+cVals	 	= c(.02,-.14,-.08,.46,-.13,-.36); 	valDiag(cVals,6)
+eVals   	= c(.40,.39,.44,.4,.4,.4);  	valDiag(eVals,6)
+
+lbTh   <- matrix(rep(c(-3,(rep(0.001,nth-1))),nvo),nrow=nth,ncol=nvo)   # lower bounds for thresholds
+ubTh   <- matrix(rep(c(5,(rep(3,nth-1))),nvo),nrow=nth,ncol=nvo)     	# lower bounds for thresholds
+labTh  <- c(paste("v2","t",1:nth,sep=""))
+
+umx::umx_set_optimizer(opt="SLSQP")
+mxOption(NULL,"mvnRelEps",0.0055)
+mxOption(NULL, 'Number of Threads', parallel::detectCores())
+
+bivariate = mxModel("ACE",
+                    mxModel("top",
+                            mxMatrix(	name="Means", 		type="Full", nrow=1, ncol=nv, free=T, labels=c("m1","m2", "m3","m4","m5")), # Mean matrix for one twin. The 2nd variable is ordinal, mean of zero.
+                            mxAlgebra(name="expMean", 	cbind(Means,Means)), # Mean matrices for twin 1 and twin 2
+                            mxMatrix(	name="A",			type="Symm", nrow=nv, ncol=nv, free=T, labels=aLabs, lbound= -10, ubound= 10), 		# Constrains element [2,2] to 1
+                            mxMatrix(	name="C",			type="Symm", nrow=nv, ncol=nv, free=F, values = 0, labels=cLabs, lbound= -20, ubound=20), 		# Constrains element [2,2] to 1
+                            mxMatrix(	name="E",			type="Symm", nrow=nv, ncol=nv, free=T, labels=eLabs,  lbound= -10, ubound=10),
+                            mxAlgebra(name="expCovMZ",	expression= rbind( cbind(A+C+E, A+C  ), cbind(  A+C, A+C+E))),
+                            mxAlgebra(name="expCovDZ",	expression= rbind( cbind(A+C+E, 0.5%x%A+C), cbind( 0.5%x%A+C, A+C+E) )),
+                            mxAlgebra(	name="corrP",	expression=cov2cor(A+C+E)),
+                            mxAlgebra(	name="corrA",	expression=cov2cor(A)),
+                            mxAlgebra(	name="corrE",	expression=cov2cor(E)),
+                            mxCI(c("VC[1,22]","corrA[1,2]","corrA[1,3]","corrA[1,4]","corrA[1,5]",
+                                   "VC[3,24]","corrA[3,4]","corrA[3,5]",
+                                   "VC[4,25]","corrA[4,5]",
+                                   "VC[5,26]")), #VC[1,10]
+                            mxAlgebra(name="VC", expression=cbind(A,C,E,A/(A+C+E),C/(A+C+E),E/(A+C+E)), dimnames=list(rep('VC',nv),rep(c('A','C','E','SA','SC','SE'),each=nv)) ) ),
+                    
+                    mxModel("MZ", mxData(mzdata, type ="raw"), mxExpectationNormal("top.expCovMZ", means="top.expMean", dimnames=selVars), mxFitFunctionML() ),
+                    mxModel("DZ", mxData(dzdata, type ="raw"), mxExpectationNormal("top.expCovDZ", means="top.expMean", dimnames=selVars), mxFitFunctionML() ),
+                    mxFitFunctionMultigroup(c("MZ","DZ"))
+)
+omxGetParameters(bivariate)
+
+# mxCheckIdentification(multi_PBA)
+
+# Run unweighted least squares to find better start values
+uls <- mxAutoStart(bivariate)
+summary(uls_fit 	<- mxTryHard(uls, intervals=F))
+summary(uls_fit,verbose = T)
+uls_fitci<-summary(omxRunCI(uls_fit, optimizer = "SLSQP"),verbose=T)
+uls_fit$top$algebras$VC$result
+
+uls_fit$top$algebras$corrP$result
+uls_fit$top$algebras$corrA$result
+
+uls_fitci<-summary(omxRunCI(uls_fit, optimizer = "SLSQP"),verbose=T)
+
+
+auto_fit_AE_r
+subs 						<- c(auto_fit_AE_r, cp_1F_PBA_AE_fit,ip_PBA_fit, cp_1F_PBA_fit, auto_fit, auto_fit_AE)
+comps						<- mxCompare(uls_fit_emp,subs );comps
+
+subs 						<- c(auto_fit_AE)
+comps						<- mxCompare(auto_fit,subs );comps
+
+
