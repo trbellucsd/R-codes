@@ -1,0 +1,37 @@
+library(mice)
+library(lme4)
+library(broom.mixed)  # nice for tidying lmer outputs
+
+# Select variables used in the model
+vars_for_mi <- c("PTAU217_LOG_RESID_V3",
+                 "AGE_V3",
+                 "CPMS_INTEN_V3",
+                 "OPIOIDMEDV3",
+                 "LEONENKO_APOE",
+                 "CHARLSON_V3",
+                 "CASE")
+
+# Subset for imputation
+dat_mi <- VETSA_nomci[, vars_for_mi]
+
+# Multiple imputation
+imp <- mice(dat_mi, m = 20, seed = 2025)
+
+# Fit your model in each imputed dataset
+fit_imp <- with(
+  imp,
+  lmer(
+    scale(PTAU217_LOG_RESID_V3) ~ 
+      scale(AGE_V3) +
+      factor(CPMS_INTEN_V3) +
+      scale(OPIOIDMEDV3) +
+      scale(LEONENKO_APOE) +
+      scale(CHARLSON_V3) +
+      (1 | CASE),
+    REML = FALSE
+  )
+)
+
+# Pool fixed-effect estimates across imputations
+pool_res <- pool(fit_imp)
+summary(pool_res)
