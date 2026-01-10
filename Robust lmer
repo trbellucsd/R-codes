@@ -1,0 +1,19 @@
+
+library(robustlmm)
+mod <- rlmer( scale(MDS_RES) ~
+  scale(AGE_V3)*factor(CPMS_INTEN_V3)
+  + scale(OPIOIDMEDV3)  
+  + scale(LEONENKO_APOE) 
+  + (1| CASE ),
+  data = VETSA_nomci
+)
+
+# Extract coefficients and SEs
+coefs <- summary(mod)$coefficients
+
+# Wald z-tests
+zvals <- coefs[, "Estimate"] / coefs[, "Std. Error"]
+pvals <- 2 * (1 - pnorm(abs(zvals)))
+
+robust_results <- cbind(coefs, z = zvals, p.value = pvals)
+robust_results
