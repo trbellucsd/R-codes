@@ -1,0 +1,21 @@
+
+library(MASS)
+
+model_rlm <- rlm(
+  scale(logw_PTAU217) ~ 
+    scale(AGE_C) + factor(SEX) + factor(BHQ_PAIN_STATUS) * scale(logw_IL6),
+  data = adbs_sub
+)
+
+summary(model_rlm)
+summ <- summary(model_rlm)
+
+coef_table <- data.frame(
+  Estimate = summ$coefficients[, "Value"],
+  SE       = summ$coefficients[, "Std. Error"]
+)
+
+coef_table$z <- coef_table$Estimate / coef_table$SE
+coef_table$p <- 2 * pnorm(abs(coef_table$z), lower.tail = FALSE)
+
+coef_table
